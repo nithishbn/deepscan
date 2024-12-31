@@ -1,0 +1,7 @@
+/target
+.direnv/
+data
+db
+.env
+.envrc
+.s*
