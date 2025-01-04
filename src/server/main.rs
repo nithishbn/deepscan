@@ -1,5 +1,5 @@
-use std::io::Cursor;
-
+use std::{collections::HashMap, io::Cursor};
+mod utils;
 use axum::{
     body::{Body, Bytes},
     debug_handler,
@@ -12,12 +12,11 @@ use axum::{
 use chrono::DateTime;
 use csv::Error;
 use dms_viewer::Variant;
-use futures_util::future::join_all;
 use maud::{html, Markup, DOCTYPE};
 use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, query, query_scalar, PgPool};
-use tokio::sync::SetError;
-use tracing::{info, Level};
+use tower_http::services::ServeDir;
+use tracing::info;
 
 #[derive(Clone)]
 struct AppState {
@@ -26,7 +25,7 @@ struct AppState {
 #[derive(Deserialize)]
 struct TableParams {
     protein: String,
-    // condition: String,
+    condition: String,
 }
 
 const AMINO_ACIDS: [&str; 21] = [
@@ -43,8 +42,8 @@ fn base(content: Markup) -> Markup {
                 title { "DeepScan" }
 
                 // Styles
-                link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" {}
-
+                // link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" {}
+                link rel="stylesheet" href="assets/style.css"{}
                 // Htmx + Alpine
                 script src="https://unpkg.com/htmx.org@1.9.10" {}
                 script src="//unpkg.com/alpinejs" defer {}
@@ -61,45 +60,84 @@ fn base(content: Markup) -> Markup {
 #[debug_handler]
 async fn hello_world() -> Markup {
     base(html! {
-            h1 { "DMS Viewer" }
-                form hx-post="/upload" hx-encoding="multipart/form-data" hx-include="[name='protein']"{
-                    input type="file" name="file" {}
-                    button{ "Upload" }
-                }
-                form hx-get="/proteins" hx-trigger="load" hx-target="#protein-select" hx-swap="innerHtml"{
-                    select id="protein-select" name="protein"
-                        hx-get="/variants"
-                        hx-include="this"
-                        hx-target="#dms-table"
-                        hx-trigger="change,load delay:0.1s"
-                        hx-swap="innerHtml" {}
-               }
+        h1 { "DMS Viewer" }
+            form hx-post="/upload" hx-encoding="multipart/form-data" hx-include="[name='protein']"{
+                input type="file" name="file" {}
+                button{ "Upload" }
+            }
+            form hx-get="/proteins" hx-trigger="load" hx-swap="innerHtml"{}
+        table id="dms-table" style="table-layout:fixed; width:100%;"{}
+    })
+}
 
-            table id="dms-table"{
+async fn get_conditions(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    info!("getting conditions");
+    let protein = params.get("protein").unwrap();
+    let rows = sqlx::query!(
+        r#"
+            SELECT DISTINCT condition
+            FROM dms
+            JOIN proteins ON dms.protein_id = proteins.id
+            WHERE proteins.protein = $1;
+            "#,
+        protein
+    )
+    .fetch_all(&state.pool)
+    .await;
+    match rows {
+        Ok(conditions) => (
+            StatusCode::OK,
+            [("HX-Trigger", "load-condition")],
+            html! {
+                @for condition in &conditions{
+                    option value=(condition.condition) { (condition.condition) }
+                }
+            },
+        ),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [("", "")],
+            html! {
+                p { "Error fetching conditions: " (err) }
+            },
+        ),
     }
-        })
 }
 
 async fn get_proteins(State(state): State<AppState>) -> Markup {
     info!("getting proteins");
-    let proteins = sqlx::query!("SELECT DISTINCT id, protein FROM proteins;")
+    let rows = sqlx::query!("SELECT DISTINCT id, protein FROM proteins;")
         .fetch_all(&state.pool)
         .await;
-    match proteins {
-        Ok(rows) => {
+    match rows {
+        Ok(proteins) => {
             html! {
-                    @for row in rows {
-                        @if row.protein=="GLP1R"{
-                            option value=(row.protein) selected { (row.protein) }
-                        }@else{
-                            option value=(row.protein) { (row.protein) }
-                        }
+            select id="protein-select" name="protein"
+                hx-get="/conditions"
+                hx-include="this"
+                hx-target="#condition-select"
+                hx-trigger="change,load delay:0.1s"
+                hx-swap="innerHtml" {
+                    @for protein in &proteins{
+                        option value=(protein.protein) { (protein.protein) }
                     }
-
+                }
+            select id="condition-select" name="condition"
+                hx-get="/variants"
+                hx-indicator="#loading"
+                hx-include="[name='protein'],[name='condition']"
+                hx-target="#dms-table"
+                hx-trigger="change,load-condition from:body delay:0.5s "
+                {
+                }
+            div id="loading" class="htmx-indicator"{"Loading..."}
             }
         }
+
         Err(err) => {
-            // Handle the error, e.g., log it and return an error message
             html! {
                 p { "Error fetching proteins: " (err) }
             }
@@ -108,7 +146,10 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
 }
 
 async fn get_variants(State(state): State<AppState>, Query(params): Query<TableParams>) -> Markup {
-    info!("Getting variant for {}", params.protein);
+    info!(
+        "Getting variant for {} and condition {}",
+        params.protein, params.condition
+    );
     let variants = sqlx::query_as!(
         Variant,
         r#"SELECT
@@ -127,38 +168,56 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             FROM dms
             JOIN proteins ON dms.protein_id = proteins.id
             WHERE proteins.protein = $1
+            AND dms.condition = $2
             ORDER BY dms.pos, dms.condition
-            LIMIT 10000;
             "#,
-        params.protein
+        params.protein,
+        params.condition
     )
     .fetch_all(&state.pool)
     .await
     .unwrap();
-    match query_scalar!(r#"select max(pos) from (select distinct pos from dms join proteins on dms.protein_id = proteins.id where  proteins.protein = $1);"#,params.protein).fetch_one(&state.pool).await{
+    match query_scalar!(r#"select max(pos) from (select distinct pos from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2);"#,params.protein,params.condition).fetch_one(&state.pool).await{
         Ok(protein_length_option) =>{
             match protein_length_option{
                 Some(protein_length)=>{
                     let positions: Vec<i32> = (1..protein_length).collect();
-                    html!(
-                        tr{
-                            th{}
-                            @for pos in &positions{
-                                th scope="col"{ (pos)}}
-                            }
-                        @for name in &AMINO_ACIDS{
-                            tr{th scope="row"{(name)}
-                                @for pos in &positions{
-                                    @for variant in &variants {
-                                        @if name == &variant.aa && pos == &variant.pos{
-                                            td {
-                                                (variant.log2_fold_change)
+                    match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
+                        Ok(max_abs_option)=>{
+                            match max_abs_option{
+                                Some(max_abs)=>{
+                                    let normalizer = utils::Normalizer{max_abs};
+                                    html!(
+                                        tr{
+                                            th class="dms-table-header" {}
+                                            @for pos in &positions{
+                                                th class="dms-table-header" scope="col"{ (pos)}}
                                             }
-                                        }
-                                    }
+                                        @for name in &AMINO_ACIDS{
+                                            tr{th class = "dms-table-header" scope="row"{(name)}
+                                                @for pos in &positions{
+                                                    @for variant in &variants {
+                                                        @if name == &variant.aa && pos == &variant.pos{
+                                                            @let color = normalizer.get_color(variant.log2_fold_change);
+                                                            td title=(format!("{:.3}",variant.log2_fold_change)) style=(format!("text-align: center; background-color: {};",color)){
+                                                                // (format!("{:.3}",variant.log2_fold_change))
+
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        })
+                                },
+                                None =>{
+                                    html!(div{"max_abs not found"})
                                 }
                             }
-                        })
+                        },
+                        Err(err)=>{
+                            html!(div{(err)})
+                        }
+                    }
                 },
                 None =>{
                     html!(div {"protein not found"})
@@ -166,8 +225,15 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             }
         },
         Err(err)=>{
-            html!(div {"hello"})
+            html!(div {(err)})
         }
+    }
+}
+
+fn upload_file_component_with_message(message: &str) -> Markup {
+    html! { p id="upload-file-message" {(message)}
+        input type="file" name="file" {}
+        button{ "Upload" }
     }
 }
 
@@ -179,7 +245,7 @@ async fn upload_file(
     info!("Uploading file");
     let mut protein: Option<String> = None;
     let mut file: Option<Bytes> = None;
-    while let Some(mut field) = multipart.next_field().await.unwrap() {
+    while let Some(field) = multipart.next_field().await.unwrap() {
         if let Some(field_name) = field.name() {
             if field_name == "protein" {
                 info!("{:?}", field);
@@ -198,28 +264,44 @@ async fn upload_file(
                         match insert(&state.pool, &variants, &protein).await {
                             Ok(result) => Ok((
                                 StatusCode::OK,
-                                format!("File successfully uploaded. {result} rows affected"),
+                                upload_file_component_with_message(&format!(
+                                    "File successfully uploaded. {result} rows affected"
+                                )),
                             )
                                 .into_response()),
-                            Err(err) => Ok((StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+                            Err(err) => Ok((
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                upload_file_component_with_message(&err.to_string()),
+                            )
                                 .into_response()),
                         }
                         // Return the processed result
                     }
                     Err(_) => {
                         // Handle any error from read_tsv
-                        Ok((StatusCode::INTERNAL_SERVER_ERROR, "Error processing file")
+                        Ok((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            upload_file_component_with_message("Error processing file"),
+                        )
                             .into_response())
                     }
                 }
             } else {
                 // No file uploaded
-                Ok((StatusCode::BAD_REQUEST, "No file uploaded").into_response())
+                Ok((
+                    StatusCode::BAD_REQUEST,
+                    upload_file_component_with_message("No file uploaded"),
+                )
+                    .into_response())
             }
         }
         None => {
             // No protein found
-            Ok((StatusCode::BAD_REQUEST, "No protein found").into_response())
+            Ok((
+                StatusCode::BAD_REQUEST,
+                upload_file_component_with_message("No protein found"),
+            )
+                .into_response())
         }
     }
 }
@@ -297,9 +379,11 @@ async fn main() -> Result<(), sqlx::Error> {
         .route("/", get(hello_world))
         .route("/variants", get(get_variants))
         .route("/proteins", get(get_proteins))
+        .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
         .layer(DefaultBodyLimit::max(1024 * 1024 * 1000))
-        .with_state(state);
+        .with_state(state)
+        .nest_service("/assets", ServeDir::new("assets"));
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
