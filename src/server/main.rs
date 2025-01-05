@@ -17,6 +17,7 @@ use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, query, query_scalar, PgPool};
 use tower_http::services::ServeDir;
 use tracing::info;
+use utils::Normalizer;
 
 #[derive(Clone)]
 struct AppState {
@@ -26,6 +27,7 @@ struct AppState {
 struct TableParams {
     protein: String,
     condition: String,
+    page: i64,
 }
 
 const AMINO_ACIDS: [&str; 21] = [
@@ -126,7 +128,7 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                     }
                 }
             select id="condition-select" name="condition"
-                hx-get="/variants"
+                hx-get="/variants?page=1"
                 hx-indicator="#loading"
                 hx-include="[name='protein'],[name='condition']"
                 hx-target="#dms-table"
@@ -170,9 +172,10 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             WHERE proteins.protein = $1
             AND dms.condition = $2
             ORDER BY dms.pos, dms.condition
-            "#,
+            LIMIT 21*100 OFFSET $3;"#,
         params.protein,
-        params.condition
+        params.condition,
+        params.page * 2100
     )
     .fetch_all(&state.pool)
     .await
@@ -192,20 +195,15 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
                                             th class="dms-table-header" {}
                                             @for pos in &positions{
                                                 th class="dms-table-header" scope="col"{ (pos)}}
-                                            }
-                                        @for name in &AMINO_ACIDS{
-                                            tr{th class = "dms-table-header" scope="row"{(name)}
+                                        }
+                                        @for amino_acid in &AMINO_ACIDS{
+                                            tr{
+                                                th class = "dms-table-header" scope="row"{(amino_acid)}
                                                 @for pos in &positions{
-                                                    @for variant in &variants {
-                                                        @if name == &variant.aa && pos == &variant.pos{
-                                                            @let color = normalizer.get_color(variant.log2_fold_change);
-                                                            td title=(format!("{:.3}",variant.log2_fold_change)) style=(format!("text-align: center; background-color: {};",color)){
-                                                                // (format!("{:.3}",variant.log2_fold_change))
+                                                    (get_variant_cell(&variants, amino_acid, pos, &normalizer))
 
-                                                            }
-                                                        }
-                                                    }
                                                 }
+                                                td hx-trigger="revealed"{}
                                             }
                                         })
                                 },
@@ -228,6 +226,23 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             html!(div {(err)})
         }
     }
+}
+
+fn get_variant_cell(
+    variants: &[Variant],
+    amino_acid: &str,
+    pos: &i32,
+    normalizer: &Normalizer,
+) -> Markup {
+    html!( @for variant in variants {
+           @if amino_acid == &variant.aa && pos == &variant.pos{
+               @let color = normalizer.get_color(variant.log2_fold_change);
+               td title=(format!("{:.3}",variant.log2_fold_change)) style=(format!("text-align: center; background-color: {};",color)){
+                   // (format!("{:.3}",variant.log2_fold_change))
+
+               }
+           }
+    })
 }
 
 fn upload_file_component_with_message(message: &str) -> Markup {
