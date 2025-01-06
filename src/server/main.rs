@@ -27,7 +27,7 @@ struct AppState {
 struct TableParams {
     protein: String,
     condition: String,
-    page: i64,
+    page: i32,
 }
 
 const AMINO_ACIDS: [&str; 21] = [
@@ -77,7 +77,7 @@ async fn get_conditions(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     info!("getting conditions");
-    let protein = params.get("protein").unwrap();
+    let protein = params.get("protein").expect("protein not found");
     let rows = sqlx::query!(
         r#"
             SELECT DISTINCT condition
@@ -149,9 +149,11 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
 
 async fn get_variants(State(state): State<AppState>, Query(params): Query<TableParams>) -> Markup {
     info!(
-        "Getting variant for {} and condition {}",
-        params.protein, params.condition
+        "Getting variant for {} and condition {} and page = {}",
+        params.protein, params.condition, params.page
     );
+    let start_pos = params.page * 100 - 100;
+    let end_pos = params.page * 100;
     let variants = sqlx::query_as!(
         Variant,
         r#"SELECT
@@ -171,11 +173,12 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             JOIN proteins ON dms.protein_id = proteins.id
             WHERE proteins.protein = $1
             AND dms.condition = $2
-            ORDER BY dms.pos, dms.condition
-            LIMIT 21*100 OFFSET $3;"#,
+            AND dms.pos BETWEEN $3 and $4
+            ORDER BY dms.pos, dms.aa"#,
         params.protein,
         params.condition,
-        params.page * 2100
+        start_pos,
+        end_pos
     )
     .fetch_all(&state.pool)
     .await
@@ -184,28 +187,39 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
         Ok(protein_length_option) =>{
             match protein_length_option{
                 Some(protein_length)=>{
-                    let positions: Vec<i32> = (1..protein_length).collect();
+
+                    let positions: Vec<i32> = (start_pos..=end_pos).collect();
                     match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
                         Ok(max_abs_option)=>{
                             match max_abs_option{
                                 Some(max_abs)=>{
                                     let normalizer = utils::Normalizer{max_abs};
                                     html!(
-                                        tr{
-                                            th class="dms-table-header" {}
-                                            @for pos in &positions{
-                                                th class="dms-table-header" scope="col"{ (pos)}}
-                                        }
-                                        @for amino_acid in &AMINO_ACIDS{
+                                        thead {
                                             tr{
-                                                th class = "dms-table-header" scope="row"{(amino_acid)}
-                                                @for pos in &positions{
-                                                    (get_variant_cell(&variants, amino_acid, pos, &normalizer))
-
-                                                }
-                                                td hx-trigger="revealed"{}
+                                            th class="dms-table-header" {}
+                                                @for amino_acid in &AMINO_ACIDS{
+                                                th class="dms-table-header" scope="col"{ (amino_acid)}
                                             }
-                                        })
+                                            // th class="dms-table-header"
+                                                            // hx-trigger="revealed"
+                                                            // hx-get=(format!("/variants?page={}&protein={}&condition={}", params.page+1, params.protein, params.condition))
+                                                            // hx-target="#dms-table thead tr"
+                                                            // hx-swap="beforeend"{ "Loading..."}
+                                            }
+                                        }
+                                        tbody{
+                                            @for pos in &positions{
+                                                tr id="dms-table-row" {
+                                                    th class="dms-table-header" scope="row"{(pos)}
+                                                    @for amino_acid in &AMINO_ACIDS{
+                                                        (get_variant_cell(&variants, amino_acid, pos, &normalizer))
+                                                    }
+                                                    //td hx-trigger="revealed" hx-target="#dms-table tbody tr" hx-get=(format!("/variants?page={}&protein={}&condition={}",params.page+1,params.protein,params.condition)) hx-swap="beforeend" {}
+                                                }
+                                            }
+                                        }
+                                    )
                                 },
                                 None =>{
                                     html!(div{"max_abs not found"})

@@ -3,16 +3,24 @@ html {
 }
 #dms-table {
     font-size: 8px;
-    table-layout: fixed;
     width: 100%;
     border-collapse: collapse;
+    overflow: auto;
+    display: block;
 }
-.dms-table-header {
-    width: 15px;
-    height: 15px;
-    font-size: 8px;
+/* .dms-table-header { */
+/* width: 15px; */
+/* height: 15px; */
+/* font-size: 8px; */
+/* } */
+tr {
+    display: block;
+    float: left;
 }
-
+th,
+td {
+    display: block;
+}
 .htmx-indicator {
     opacity: 0;
     transition: opacity 250ms ease-in-out;
