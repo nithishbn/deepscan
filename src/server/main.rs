@@ -16,7 +16,7 @@ use maud::{html, Markup, DOCTYPE};
 use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, query, query_scalar, PgPool};
 use tower_http::services::ServeDir;
-use tracing::info;
+use tracing::{debug, info, warn};
 use utils::Normalizer;
 
 #[derive(Clone)]
@@ -34,6 +34,7 @@ const AMINO_ACIDS: [&str; 21] = [
     "*", "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V",
     "W", "Y",
 ];
+const PAGE_SIZE: i32 = 21*8;
 fn base(content: Markup) -> Markup {
     html! {
         (DOCTYPE)
@@ -68,7 +69,28 @@ async fn hello_world() -> Markup {
                 button{ "Upload" }
             }
             form hx-get="/proteins" hx-trigger="load" hx-swap="innerHtml"{}
-        table id="dms-table" style="table-layout:fixed; width:100%;"{}
+            // div id="dms-container"{
+                div id="amino-acid-headers" {
+                    table  {
+                        tbody {
+                            
+                            tr{
+                                th{" "}
+                                @for amino_acid in &AMINO_ACIDS{
+                                th { (amino_acid)}
+                            }
+    
+                            }
+                        }
+                    }
+                    
+                }
+                div id="dms-table-container"{
+                    table id="dms-table"{tbody id="dms-table-body"{}}
+                }
+            // }
+            
+        
     })
 }
 
@@ -131,7 +153,7 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                 hx-get="/variants?page=1"
                 hx-indicator="#loading"
                 hx-include="[name='protein'],[name='condition']"
-                hx-target="#dms-table"
+                hx-target="#dms-table-body"
                 hx-trigger="change,load-condition from:body delay:0.5s "
                 {
                 }
@@ -152,8 +174,9 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
         "Getting variant for {} and condition {} and page = {}",
         params.protein, params.condition, params.page
     );
-    let start_pos = params.page * 100 - 100;
-    let end_pos = params.page * 100;
+    let start_pos = params.page * PAGE_SIZE - PAGE_SIZE + 1 ;
+    let end_pos = params.page * PAGE_SIZE;
+    info!("{start_pos}, {end_pos}");
     let variants = sqlx::query_as!(
         Variant,
         r#"SELECT
@@ -183,80 +206,67 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
     .fetch_all(&state.pool)
     .await
     .unwrap();
-    match query_scalar!(r#"select max(pos) from (select distinct pos from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2);"#,params.protein,params.condition).fetch_one(&state.pool).await{
-        Ok(protein_length_option) =>{
-            match protein_length_option{
-                Some(protein_length)=>{
-
-                    let positions: Vec<i32> = (start_pos..=end_pos).collect();
-                    match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
-                        Ok(max_abs_option)=>{
-                            match max_abs_option{
-                                Some(max_abs)=>{
-                                    let normalizer = utils::Normalizer{max_abs};
-                                    html!(
-                                        thead {
-                                            tr{
-                                            th class="dms-table-header" {}
-                                                @for amino_acid in &AMINO_ACIDS{
-                                                th class="dms-table-header" scope="col"{ (amino_acid)}
-                                            }
-                                            // th class="dms-table-header"
-                                                            // hx-trigger="revealed"
-                                                            // hx-get=(format!("/variants?page={}&protein={}&condition={}", params.page+1, params.protein, params.condition))
-                                                            // hx-target="#dms-table thead tr"
-                                                            // hx-swap="beforeend"{ "Loading..."}
-                                            }
-                                        }
-                                        tbody{
-                                            @for pos in &positions{
-                                                tr id="dms-table-row" {
-                                                    th class="dms-table-header" scope="row"{(pos)}
-                                                    @for amino_acid in &AMINO_ACIDS{
-                                                        (get_variant_cell(&variants, amino_acid, pos, &normalizer))
-                                                    }
-                                                    //td hx-trigger="revealed" hx-target="#dms-table tbody tr" hx-get=(format!("/variants?page={}&protein={}&condition={}",params.page+1,params.protein,params.condition)) hx-swap="beforeend" {}
-                                                }
-                                            }
-                                        }
-                                    )
-                                },
-                                None =>{
-                                    html!(div{"max_abs not found"})
+    let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
+    info!("{}",query_length);
+    let positions: Vec<i32> = (start_pos..=end_pos).collect();
+    match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
+        Ok(max_abs_option)=>{
+            match max_abs_option{
+                Some(max_abs)=>{
+                    let normalizer = utils::Normalizer{max_abs};
+                    html!(
+                        @for pos in &positions{
+                            tr{
+                                th scope="row"{(pos)}
+                                @for amino_acid in &AMINO_ACIDS{
+                                    @let end_of_row = (query_length!=0 && pos % &query_length == 0) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                    (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
                                 }
                             }
-                        },
-                        Err(err)=>{
-                            html!(div{(err)})
                         }
-                    }
+                    )
                 },
                 None =>{
-                    html!(div {"protein not found"})
+                    warn!("error");
+
+                    html!(div{"max_abs not found"})
                 }
             }
         },
         Err(err)=>{
-            html!(div {(err)})
+            warn!("error");
+            html!(div{(err)})
         }
     }
+                
 }
 
 fn get_variant_cell(
     variants: &[Variant],
     amino_acid: &str,
     pos: &i32,
+    params: &TableParams,
+    end_of_row: bool,
     normalizer: &Normalizer,
 ) -> Markup {
-    html!( @for variant in variants {
-           @if amino_acid == &variant.aa && pos == &variant.pos{
-               @let color = normalizer.get_color(variant.log2_fold_change);
-               td title=(format!("{:.3}",variant.log2_fold_change)) style=(format!("text-align: center; background-color: {};",color)){
-                   // (format!("{:.3}",variant.log2_fold_change))
+    // info!("{}",pos%PAGE_SIZE==0);
+    if end_of_row{info!("reached end of row")};
+    for variant in variants{
+        if amino_acid == &variant.aa && pos == &variant.pos{
+            let color = normalizer.get_color(variant.log2_fold_change);
+               if end_of_row{
+                return html!(td title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)) hx-trigger="revealed delay:0.5s" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,variant.condition,params.protein)) hx-swap="beforeend"{});
+                                                // div  {}
+               }else{
+               return html!(td title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)){});
+                }
+        }
+    }
+    if end_of_row{
+        return html!(td title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)) hx-trigger="revealed delay:0.5s" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,params.condition,params.protein)) hx-swap="beforeend" {});
+    }
+    return html!(td title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
 
-               }
-           }
-    })
 }
 
 fn upload_file_component_with_message(message: &str) -> Markup {
@@ -398,7 +408,7 @@ async fn main() -> Result<(), sqlx::Error> {
     // build our application with a single route
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://postgres@localhost/db")
+        .connect("postgres://postgres@localhost/postgres")
         .await?;
     let state = AppState { pool };
     // run it with hyper on localhost:3000
@@ -410,7 +420,7 @@ async fn main() -> Result<(), sqlx::Error> {
         .route("/proteins", get(get_proteins))
         .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 1000))
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 100000000))
         .with_state(state)
         .nest_service("/assets", ServeDir::new("assets"));
     axum::serve(listener, app.into_make_service())

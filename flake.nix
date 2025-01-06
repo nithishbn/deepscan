@@ -36,7 +36,7 @@
 
             # ...create a database using the name Postgres defaults to.
               echo "CREATE USER postgres SUPERUSER;" | postgres --single -E postgres
-              echo "CREATE DATABASE postgres WITH OWNER postgres;" | postgres --single -E postgres
+              echo "CREATE DATABASE dms WITH OWNER postgres;" | postgres --single -E postgres
               fi
 
 

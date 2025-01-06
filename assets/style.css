@@ -1,26 +1,79 @@
 html {
-    font-family: "TX02 Nerd Font Mono";
+    font-family: "Berkeley Mono";
 }
+#dms-container {
+    display: flex;
+    flex-direction: row;
+    /* align-items: flex-start; */
+
+}
+#amino-acid-headers {
+    /* display: flex; */
+    /* flex-direction: column;
+    align-items: flex-end; */
+    float: left;
+}
+#amino-acid-headers table {
+    width: 100%; 
+    border-spacing: 0;
+}
+
+#amino-acid-headers th {
+    display:inline-block;
+    font-size: 8px;
+    width: 15px;
+    height: 15px;
+    text-align: center;
+}
+
+#dms-table-container {
+    /* flex-grow: 1; */
+    width: 100%;
+    overflow: scroll;
+    /* width: 100%; */
+    /* flex-grow: 1; */
+}
+
 #dms-table {
     font-size: 8px;
-    width: 100%;
     border-collapse: collapse;
-    overflow: auto;
-    display: block;
+    width: auto;
+    table-layout: fixed; 
+    overflow: scroll;
 }
-/* .dms-table-header { */
-/* width: 15px; */
-/* height: 15px; */
-/* font-size: 8px; */
-/* } */
-tr {
+
+#dms-table-body tr {
     display: block;
     float: left;
 }
-th,
-td {
+#dms-table thead th,
+#dms-table tbody td {
+    text-align: center;
+    display: block;
+    width: 15px;
+    height: 15px;
+}
+/* tr { display: block; float: left; } */
+/* tr {
+    flex: 1;
     display: block;
 }
+tbody{
+    display:flex;
+    flex-direction: row;
+    width: 100%;
+} */
+/* thead th{
+    display: block;
+    /* flex-direction: column; */
+    /* width: 100% */
+/* } */ */
+
+/* tbody td {
+    display: block;
+    width: 15px;
+    height: 15px;
+} */
 .htmx-indicator {
     opacity: 0;
     transition: opacity 250ms ease-in-out;
