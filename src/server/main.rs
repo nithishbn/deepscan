@@ -16,7 +16,7 @@ use maud::{html, Markup, DOCTYPE};
 use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, query, query_scalar, PgPool};
 use tower_http::services::ServeDir;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use utils::Normalizer;
 
 #[derive(Clone)]
@@ -69,16 +69,6 @@ async fn hello_world() -> Markup {
                 button{ "Upload" }
             }
             form hx-get="/proteins" hx-trigger="load" hx-swap="innerHtml"{}
-            // div id="dms-container"{
-                // div id="amino-acid-headers" {
-                //     table  {
-                //         tbody {
-                            
-                            
-                //         }
-                //     }
-                    
-                // }
                 div id="dms-table-container"{
                     table id="dms-table"{
                         thead{
@@ -92,9 +82,6 @@ async fn hello_world() -> Markup {
                         tbody id="dms-table-body"{}
                     }
                 }
-            // }
-            
-        
     })
 }
 
@@ -210,43 +197,48 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
     .fetch_all(&state.pool)
     .await
     .unwrap();
-    let max_pos: &i32 = &variants.iter().map(|variant| variant.pos).max().unwrap();
-    let min_pos = &variants.iter().map(|variant| variant.pos).min().unwrap();
 
-    let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
-    info!("{}",query_length);
-    let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
-    info!("{:?}",positions);
-    match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
-        Ok(max_abs_option)=>{
-            match max_abs_option{
-                Some(max_abs)=>{
-                    let normalizer = utils::Normalizer{max_abs};
-                    html!(
-                        @for pos in &positions{
-                            tr{
-                                th scope="row"{(pos)}
-                                @for amino_acid in &AMINO_ACIDS{
-                                    @let end_of_row = (query_length!=0 && pos == max_pos) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
-                                    (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
+    if let Some(max_pos) = &variants.iter().map(|variant| variant.pos).max() {
+        if let Some(min_pos) = &variants.iter().map(|variant| variant.pos).min() {
+            let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
+            info!("{}", query_length);
+            let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
+            dbg!("{:?}", &positions);
+            match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
+                Ok(max_abs_option)=>{
+                    match max_abs_option{
+                        Some(max_abs)=>{
+                            let normalizer = utils::Normalizer{max_abs};
+                            html!(
+                                @for pos in &positions{
+                                    tr{
+                                        th scope="row"{(pos)}
+                                        @for amino_acid in &AMINO_ACIDS{
+                                            @let end_of_row = (query_length!=0 && pos == max_pos) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                            (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    )
-                },
-                None =>{
-                    warn!("error");
+                            )
+                        },
+                        None =>{
+                            warn!("error");
 
-                    html!(div{"max_abs not found"})
+                            html!(div{"max_abs not found"})
+                        }
+                    }
+                },
+                Err(err)=>{
+                    warn!("error");
+                    html!(div{(err)})
                 }
             }
-        },
-        Err(err)=>{
-            warn!("error");
-            html!(div{(err)})
+        } else {
+            return html!();
         }
+    } else {
+        return html!();
     }
-                
 }
 
 fn get_variant_cell(
@@ -258,24 +250,25 @@ fn get_variant_cell(
     normalizer: &Normalizer,
 ) -> Markup {
     // info!("{}",pos%PAGE_SIZE==0);
-    if end_of_row{info!("reached end of row")};
-    for variant in variants{
-        if amino_acid == &variant.aa && pos == &variant.pos{
+    if end_of_row {
+        info!("reached end of row")
+    };
+    for variant in variants {
+        if amino_acid == &variant.aa && pos == &variant.pos {
             let color = normalizer.get_color(variant.log2_fold_change);
-               if end_of_row{
+            if end_of_row {
                 info!("emitting end of row td");
-                return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)) hx-trigger="revealed delay:0.5s" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,variant.condition,params.protein)) hx-swap="beforeend"{});
-                                                // div  {}
-               }else{
-               return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)){});
-                }
+                return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,variant.condition,params.protein)) hx-swap="beforeend"{});
+                // div  {}
+            } else {
+                return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)){});
+            }
         }
     }
-    if end_of_row{
-        return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)) hx-trigger="intersect once" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,params.condition,params.protein)) hx-swap="beforeend" {});
+    if end_of_row {
+        return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,params.condition,params.protein)) hx-swap="beforeend" {});
     }
     return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
-
 }
 
 fn upload_file_component_with_message(message: &str) -> Markup {

@@ -23,7 +23,7 @@
               # mkdir -p ./db/
             export PGDATA="$(pwd)/db"
             export PGHOST="$(pwd)"
-            export PGPORT="5432"
+            export PGPORT="5431"
             if [[ ! $(grep listen_address $PGDATA/postgresql.conf) ]]; then
             echo "db does not exist, creating "
             initdb -D $PGDATA --no-locale --encoding=UTF8
@@ -36,7 +36,7 @@
 
             # ...create a database using the name Postgres defaults to.
               echo "CREATE USER postgres SUPERUSER;" | postgres --single -E postgres
-              echo "CREATE DATABASE dms WITH OWNER postgres;" | postgres --single -E postgres
+              echo "CREATE DATABASE postgres WITH OWNER postgres;" | postgres --single -E postgres
               fi
 
 

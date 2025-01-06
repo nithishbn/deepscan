@@ -2,8 +2,7 @@
 .direnv/
 data
 db
-.env
-.envrc
+.env*
 .s*
 sumstats
-.envrc
+logfile
