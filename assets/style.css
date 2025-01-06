@@ -1,79 +1,40 @@
+
+:root{
+    --dms-box-height: 50px;
+
+}
+
 html {
     font-family: "Berkeley Mono";
 }
-#dms-container {
-    display: flex;
-    flex-direction: row;
-    /* align-items: flex-start; */
 
-}
-#amino-acid-headers {
-    /* display: flex; */
-    /* flex-direction: column;
-    align-items: flex-end; */
-    float: left;
-}
-#amino-acid-headers table {
-    width: 100%; 
-    border-spacing: 0;
-}
-
-#amino-acid-headers th {
-    display:inline-block;
-    font-size: 8px;
-    width: 15px;
-    height: 15px;
-    text-align: center;
-}
-
-#dms-table-container {
-    /* flex-grow: 1; */
-    width: 100%;
-    overflow: scroll;
-    /* width: 100%; */
-    /* flex-grow: 1; */
-}
 
 #dms-table {
-    font-size: 8px;
+    line-height: var(--dms-box-height);
     border-collapse: collapse;
-    width: auto;
+    /* width: max-content; */
+    width: 25%;
+    height: 25%;
     table-layout: fixed; 
-    overflow: scroll;
+    /* overflow: scroll; */
+}
+#dms-table-container{
+    width:100%;
 }
 
-#dms-table-body tr {
-    display: block;
-    float: left;
+thead th,
+tbody td, tbody th{
+    /* display: block; */
+    font-size: 16px;
+    width: var(--dms-box-height);
+    height: var(--dms-box-height);
 }
-#dms-table thead th,
-#dms-table tbody td {
-    text-align: center;
-    display: block;
-    width: 15px;
-    height: 15px;
-}
-/* tr { display: block; float: left; } */
-/* tr {
-    flex: 1;
-    display: block;
-}
-tbody{
-    display:flex;
-    flex-direction: row;
-    width: 100%;
-} */
-/* thead th{
-    display: block;
-    /* flex-direction: column; */
-    /* width: 100% */
-/* } */ */
 
-/* tbody td {
-    display: block;
-    width: 15px;
-    height: 15px;
-} */
+.dms-cell:hover{
+    box-shadow: inset;
+}
+
+
 .htmx-indicator {
     opacity: 0;
     transition: opacity 250ms ease-in-out;
