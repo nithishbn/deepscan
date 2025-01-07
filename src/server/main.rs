@@ -16,7 +16,7 @@ use maud::{html, Markup, DOCTYPE};
 use serde::Deserialize;
 use sqlx::{postgres::PgPoolOptions, query, query_scalar, PgPool};
 use tower_http::services::ServeDir;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use utils::Normalizer;
 
 #[derive(Clone)]
@@ -64,7 +64,8 @@ fn base(content: Markup) -> Markup {
 async fn hello_world() -> Markup {
     base(html! {
         h1 { "DMS Viewer" }
-            form hx-post="/upload" hx-encoding="multipart/form-data" hx-include="[name='protein']"{
+            form hx-post="/upload" hx-encoding="multipart/form-data" hx-include="[name='protein']" hx-indicator="#upload-indicator"{
+                p id="upload-indicator" class="htmx-indicator"{"Uploading file..."}
                 input type="file" name="file" {}
                 button{ "Upload" }
             }
@@ -203,7 +204,7 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
             let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
             info!("{}", query_length);
             let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
-            dbg!("{:?}", &positions);
+            debug!("{:?}", &positions);
             match query_scalar!(r#"select max(abs(log2_fold_change)) from dms join proteins on dms.protein_id = proteins.id where proteins.protein = $1 and dms.condition = $2;"#,params.protein,params.condition).fetch_one(&state.pool).await{
                 Ok(max_abs_option)=>{
                     match max_abs_option{
@@ -214,7 +215,7 @@ async fn get_variants(State(state): State<AppState>, Query(params): Query<TableP
                                     tr{
                                         th scope="row"{(pos)}
                                         @for amino_acid in &AMINO_ACIDS{
-                                            @let end_of_row = (query_length!=0 && pos == max_pos) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                            @let end_of_row = (query_length!=0 && pos == &(max_pos - 5)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
                                             (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
                                         }
                                     }
@@ -258,17 +259,17 @@ fn get_variant_cell(
             let color = normalizer.get_color(variant.log2_fold_change);
             if end_of_row {
                 info!("emitting end of row td");
-                return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,variant.condition,params.protein)) hx-swap="beforeend"{});
+                return html!(td id=(format!("{pos}{amino_acid}")) class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,variant.condition,params.protein)) hx-swap="beforeend"{});
                 // div  {}
             } else {
-                return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)){});
+                return html!(td id=(format!("{pos}{amino_acid}")) class="dms-cell" title=(format!("log2FC: {:.3}, {}{}",variant.log2_fold_change,variant.pos,variant.aa)) style=(format!("background-color: {};",color)){});
             }
         }
     }
     if end_of_row {
-        return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,params.condition,params.protein)) hx-swap="beforeend" {});
+        return html!(td id=(format!("{pos}{amino_acid}"))  class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)) hx-trigger="revealed" hx-target="#dms-table-body" hx-get=(format!("/variants?page={}&condition={}&protein={}",params.page+1,params.condition,params.protein)) hx-swap="beforeend" {});
     }
-    return html!(td class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
+    return html!(td id=(format!("{pos}{amino_acid}"))  class="dms-cell" title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
 }
 
 fn upload_file_component_with_message(message: &str) -> Markup {
@@ -305,6 +306,7 @@ async fn upload_file(
                         match insert(&state.pool, &variants, &protein).await {
                             Ok(result) => Ok((
                                 StatusCode::OK,
+                                [("HX-Trigger", "load-condition")],
                                 upload_file_component_with_message(&format!(
                                     "File successfully uploaded. {result} rows affected"
                                 )),
@@ -312,6 +314,7 @@ async fn upload_file(
                                 .into_response()),
                             Err(err) => Ok((
                                 StatusCode::INTERNAL_SERVER_ERROR,
+                                [("", "")],
                                 upload_file_component_with_message(&err.to_string()),
                             )
                                 .into_response()),
@@ -322,6 +325,7 @@ async fn upload_file(
                         // Handle any error from read_tsv
                         Ok((
                             StatusCode::INTERNAL_SERVER_ERROR,
+                            [("", "")],
                             upload_file_component_with_message("Error processing file"),
                         )
                             .into_response())
@@ -331,6 +335,7 @@ async fn upload_file(
                 // No file uploaded
                 Ok((
                     StatusCode::BAD_REQUEST,
+                    [("", "")],
                     upload_file_component_with_message("No file uploaded"),
                 )
                     .into_response())
@@ -340,6 +345,7 @@ async fn upload_file(
             // No protein found
             Ok((
                 StatusCode::BAD_REQUEST,
+                [("", "")],
                 upload_file_component_with_message("No protein found"),
             )
                 .into_response())
