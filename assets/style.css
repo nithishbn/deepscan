@@ -1,41 +1,96 @@
 :root {
-    --dms-box-height: 50px;
+    --dms-box-height: 15px;
 }
 
 html {
     font-family: "Berkeley Mono";
+    font-weight: 300;
+    height: 100%;
 }
+body{ height: 100%}
 
+h1{
+    font-family: "Berkeley Mono";
+    font-weight: 900;
+}
+h2{
+    font-weight: 500;
+}
+form,
 select,
 input,
 button {
     font-family: "Berkeley Mono";
+    font-weight: 350;
+
+}
+
+#full-view{
+    display: flex;
+    flex-direction: row;
+    overflow: hidden; 
+    height: 100%;
 }
 
 #dms-table {
     line-height: var(--dms-box-height);
     border-collapse: collapse;
     /* width: max-content; */
-    width: 25%;
-    height: 25%;
+    /* width: 50%;
+    height: 50%; */
+    height: 100%;
     table-layout: fixed;
+    font-weight: 300;
+
     /* overflow: scroll; */
 }
-#dms-table-container {
-    width: 100%;
+#dms-table-container{
+    flex: 1; 
+    height: 100%; 
+    overflow: auto; 
+    scrollbar-width: none; 
+    width: 75%;
+}
+
+#dms-table-container::-webkit-scrollbar {
+    display: none;
+  }
+
+#variant-view{
+    flex: 1; 
+
+    position: sticky;
+    height: 100%;
+}
+#variant-view-body{
+    height: 100%;
 }
 
 thead th,
 tbody td,
 tbody th {
     /* display: block; */
-    font-size: 16px;
+    font-size: var(--dms-box-height);
     width: var(--dms-box-height);
     height: var(--dms-box-height);
+    text-align: center;
+    font-weight: 400;
 }
-
+tbody th{
+    padding: var(--dms-box-height); 
+}
+thead th{
+    padding: var(--dms-box-height); 
+}
 .dms-cell:hover {
-    box-shadow: inset;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2); 
+    transition: box-shadow 0.3s ease; 
+    z-index: 1; 
+    position: relative; 
+    transform: scale(1.1); 
+}
+.dms-cell{
+    transition: box-shadow 0.3s ease, background-color 0.3s ease, transform 0.4s ease; /* Smooth transition for hover and unhover */
 }
 
 .htmx-indicator {
