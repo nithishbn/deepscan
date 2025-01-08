@@ -30,23 +30,23 @@ async fn main() -> Result<(), sqlx::Error> {
         .connect("postgres://postgres@localhost/db")
         .await?;
     let mut txn = pool.begin().await?;
-    for variant in variants {
-        println!("{:?}", variant);
-        // query!("INSERT INTO dms (chunk, pos,condition,aa,log2_fold_change,log2_std_error,statistic,p_value,version,protein,created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-            &variant.chunk,
-            variant.pos,
-            variant.condition,
-            &variant.aa,
-            variant.log2_fold_change,
-            variant.log2_std_error,
-            variant.statistic,
-            variant.p_value,
-            variant.version,
-            variant.protein,
-            variant.created_at)
-            .execute(&mut *txn)
-            .await?;
-    }
+    // for variant in variants {
+    //     println!("{:?}", variant);
+    //     // query!("INSERT INTO dms (chunk, pos,condition,aa,log2_fold_change,log2_std_error,statistic,p_value,version,protein,created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    //         &variant.chunk,
+    //         variant.pos,
+    //         variant.condition,
+    //         &variant.aa,
+    //         variant.log2_fold_change,
+    //         variant.log2_std_error,
+    //         variant.statistic,
+    //         variant.p_value,
+    //         variant.version,
+    //         variant.protein,
+    //         variant.created_at)
+    //         .execute(&mut *txn)
+    //         .await?;
+    // }
     txn.commit().await?;
 
     Ok(())

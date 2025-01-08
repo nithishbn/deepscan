@@ -1,5 +1,5 @@
 :root {
-    --dms-box-height: 15px;
+    --dms-box-height: 12px;
 }
 
 html {
@@ -7,63 +7,82 @@ html {
     font-weight: 300;
     height: 100%;
 }
-body{ height: 100%}
 
-h1{
+body {
+    height: 100%;
+}
+
+h1 {
     font-family: "Berkeley Mono";
     font-weight: 900;
 }
-h2{
+
+h2 {
     font-weight: 500;
 }
+
 form,
 select,
 input,
 button {
     font-family: "Berkeley Mono";
     font-weight: 350;
-
 }
 
-#full-view{
+#full-view {
     display: flex;
     flex-direction: row;
-    overflow: hidden; 
-    height: 100%;
+    overflow: hidden;
+    height: 100vh;
 }
 
 #dms-table {
     line-height: var(--dms-box-height);
     border-collapse: collapse;
-    /* width: max-content; */
-    /* width: 50%;
-    height: 50%; */
     height: 100%;
     table-layout: fixed;
     font-weight: 300;
-
+    width: auto;
+    /* width: fit-content; */
     /* overflow: scroll; */
 }
-#dms-table-container{
-    flex: 1; 
-    height: 100%; 
-    overflow: auto; 
-    scrollbar-width: none; 
-    width: 75%;
+
+#dms-table-container {
+    flex: 1;
+    height: 100%;
+    overflow: auto;
+    scrollbar-width: none;
+    width: 100%;
 }
 
 #dms-table-container::-webkit-scrollbar {
     display: none;
-  }
-
-#variant-view{
-    flex: 1; 
-
-    position: sticky;
-    height: 100%;
 }
-#variant-view-body{
+#full-variant-view {
+    flex: 1;
+    width: 100%;
     height: 100%;
+    padding-left: 25px;
+}
+#variant-view {
+    flex: 1;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    flex-direction: row;
+}
+
+#variant-view-body {
+    flex: 0 1 auto;
+    height: 100%;
+    width: 35%;
+}
+
+#structure {
+    flex: 0 1 auto;
+    width: 65%;
+    position: relative;
+    height: 50%;
 }
 
 thead th,
@@ -76,21 +95,29 @@ tbody th {
     text-align: center;
     font-weight: 400;
 }
-tbody th{
-    padding: var(--dms-box-height); 
+
+tbody th {
+    padding: var(--dms-box-height);
 }
-thead th{
-    padding: var(--dms-box-height); 
+
+thead th {
+    padding: var(--dms-box-height);
 }
+
 .dms-cell:hover {
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2); 
-    transition: box-shadow 0.3s ease; 
-    z-index: 1; 
-    position: relative; 
-    transform: scale(1.1); 
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    transition: box-shadow 0.3s ease;
+    z-index: 1;
+    position: relative;
+    transform: scale(1.1);
 }
-.dms-cell{
-    transition: box-shadow 0.3s ease, background-color 0.3s ease, transform 0.4s ease; /* Smooth transition for hover and unhover */
+
+.dms-cell {
+    transition:
+        box-shadow 0.3s ease,
+        background-color 0.3s ease,
+        transform 0.4s ease;
+    /* Smooth transition for hover and unhover */
 }
 
 .htmx-indicator {
@@ -98,11 +125,13 @@ thead th{
     display: none;
     transition: opacity 250ms ease-in-out;
 }
+
 .htmx-request .htmx-indicator {
     opacity: 1;
     display: inline;
     transition: opacity 250ms ease-in-out;
 }
+
 .htmx-request.htmx-indicator {
     display: inline;
 
