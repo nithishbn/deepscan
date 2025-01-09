@@ -48,15 +48,15 @@ fn base(content: Markup) -> Markup {
                 // Styles
                 // link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" {}
                 link rel="stylesheet" href="assets/style.css"{}
-                link rel="stylesheet" href="assets/molstar.css"{}
+                link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-light.css"{}
+
                 // Htmx + Alpine
                 script src="assets/htmx.min.js" {}
-                script src="assets/molstar.js" {}
-
+                script src="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-plugin.js"{}
                 // script src="//unpkg.com/alpinejs" defer {}
 
             }
-            body hx-boost="true"{
+            body{
 
                 (content)
             }
@@ -104,7 +104,9 @@ async fn main_content() -> Markup {
                 h3{"Variant View"}
                     div id="variant-view"{
                         div id="variant-view-body"{}
-                        div id="structure"{ script src="assets/viewer.js"{}}
+                        div id="structure"{
+                            script src="assets/viewer.js"{}
+                        }
                     }
             }
 
@@ -134,10 +136,10 @@ async fn get_conditions(
     .fetch_all(&state.pool)
     .await;
     let pdb_id = match protein.as_str() {
-        "GLP1R" => "7KI0",
-        "GIPR" => "8WA3",
-        "RHO" => "1F88",
-        _ => "7S15",
+        "GLP1R" => "7ki0",
+        "GIPR" => "8wa3",
+        "RHO" => "1f88",
+        _ => "7s15",
     };
     match rows {
         Ok(conditions) => (
@@ -175,7 +177,7 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                 hx-include="this"
                 hx-target="#condition-select"
                 hx-trigger="change,load delay:0.1s"
-                hx-swap="innerHtml" {
+                {
                     @for protein in &proteins{
                         option value=(protein.protein) { (protein.protein) }
                     }
@@ -328,7 +330,7 @@ fn get_variant_cell(
     };
     for variant in variants {
         if amino_acid == &variant.aa && pos == &variant.pos {
-            let color = normalizer.get_color(variant.log2_fold_change);
+            let color = normalizer.get_color_hex(variant.log2_fold_change);
             if end_of_row {
                 info!("emitting end of row td");
                 return html!((format_variant_cell(
@@ -375,9 +377,9 @@ fn format_variant_cell(
                     id=(format!("{pos}{amino_acid}"))
                     class="dms-cell"
                     title=(format!("log2FC: {:.3}, {}{}",log2_fc,pos,amino_acid))
-
                     hx-get=(format!("variants/{}",variant_id))
-                    hx-trigger="mouseover throttle:0.5s"
+                    hx-vals=(format!("{{\"color\":\"{}\"}}",color))
+                    hx-trigger="mouseover"
                     hx-target="#variant-view-body"
                 {});
             }
@@ -508,9 +510,11 @@ fn read_tsv(file_contents: Bytes, protein: &str) -> Result<Vec<Variant>, Error> 
 async fn get_variant_by_id(
     State(state): State<AppState>,
     Path(id): Path<i32>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    info!("Acquired variant {id}");
+    // info!("Acquired variant {id}");
     let pool = &state.pool;
+    let color = params.get("color").expect("color not found");
     if let Ok(variant) = query_as!(
         Variant,
         r#"
@@ -566,6 +570,7 @@ async fn get_variant_by_id(
                                 td{(format!("{:.3}",variant.p_value))}
         }
                         }
+                        script {(PreEscaped(format!("color_variant({},'{}')",variant.pos,color)))}
 
 
 
@@ -575,6 +580,7 @@ async fn get_variant_by_id(
             .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
         return res;
     } else {
+        warn!("Variant not found!");
         return html!("Variant not found!").into_response();
     }
 }
