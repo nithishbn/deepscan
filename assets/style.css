@@ -1,38 +1,83 @@
 :root {
-    --dms-box-height: 1.1em;
+    --dms-box-height: 0.75vw;
+    --dms-table-font-size: 1.05vw;
+    --variant-view-font-size: 1.1vw;
+    --background-color: white;
+    --highlight-text-color: 
+;
 }
 
 html {
     font-family: "Berkeley Mono";
-    font-weight: 300;
+    font-weight: 400;
     height: 100%;
 }
 
 body {
     height: 100%;
+    background-color: var(--background-color);
 }
 
 h1 {
     font-family: "Berkeley Mono";
     font-weight: 900;
+    font-style: bold;
+    font-size: 3vh;
+}
+h1 #page-title-start {
+    color: #d00125;
+}
+h1 #page-title-end {
+    color: midnightblue;
 }
 
 h2 {
-    font-weight: 500;
+    font-weight: 750;
+    font-style: bold;
+    font-size: 2vh;
 }
 
 form,
 select,
 input,
-button {
+button,
+option {
     font-family: "Berkeley Mono";
-    font-weight: 350;
+    font-weight: 600;
+    font-size: var(--dms-table-font-size);
+}
+input {
+    margin: 0.5vw 0.5vh;
+}
+select,
+button {
+    margin: 0.5vw 0.5vh;
+    padding: 1vw 0.75vh;
+}
+
+button {
+    border: none;
+    border-radius: 4px;
+    background-color: #f1f1f1;
+    transition: background-color 0.4s ease;
+}
+select {
+    height: fit-content;
+    border: none;
+    border-radius: 4px;
+    background-color: #f1f1f1;
+    transition: background-color 0.4s ease;
+}
+button:hover,
+select:hover {
+    background-color: #e3e3e3;
+    transition: background-color 0.3s ease;
 }
 
 #full-view {
     display: flex;
     flex-direction: row;
-    overflow: hidden;
+    overflow-x: auto;
     height: 100vh;
 }
 
@@ -41,8 +86,10 @@ button {
     border-collapse: collapse;
     height: 100%;
     table-layout: fixed;
-    font-weight: 300;
+
+    /* font-style: bold; */
     width: auto;
+
     /* width: fit-content; */
     /* overflow: scroll; */
 }
@@ -50,7 +97,8 @@ button {
 #dms-table-container {
     flex: 1;
     height: 100%;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-width: none;
     width: 100%;
 }
@@ -62,7 +110,8 @@ button {
     flex: 1;
     width: 100%;
     height: 100%;
-    padding-left: 25px;
+    padding-left: 1vh;
+    padding-top: 1vh;
 }
 #variant-view {
     flex: 1;
@@ -76,6 +125,7 @@ button {
     flex: 0 1 auto;
     height: 100%;
     width: 35%;
+    padding-right: 1vh;
 }
 
 #structure {
@@ -84,24 +134,45 @@ button {
     position: relative;
     height: 50%;
 }
-
-thead th,
-tbody td,
-tbody th {
+#variant-view tbody td,
+#variant-view tbody th {
     /* display: block; */
-    font-size: var(--dms-box-height);
+    font-size: var(--variant-view-font-size);
+    width: var(--variant-view-font-size);
+    height: var(--variant-view-font-size);
+    padding-top: 1vh;
+    padding-right: 1vw;
+}
+
+#variant-view tbody th {
+    font-weight: 500;
+    text-align: left;
+}
+#variant-view tbody td {
+    font-weight: 400;
+    text-align: center;
+}
+
+#dms-table-container thead th,
+#dms-table-container tbody td,
+#dms-table-container tbody th {
     width: var(--dms-box-height);
     height: var(--dms-box-height);
     text-align: center;
-    font-weight: 400;
+    font-weight: 500;
 }
 
-tbody th {
+#dms-table-container tbody th {
     padding: var(--dms-box-height);
+    font-size: var(--dms-table-font-size);
 }
-
-thead th {
+#dms-table-container thead th {
+    /* display: block; */
+    font-size: var(--dms-table-font-size);
     padding: var(--dms-box-height);
+    position: sticky;
+    background-color: white;
+    top: 0; /* Don't forget this, required for the stickiness */
 }
 
 .dms-cell:hover {
@@ -114,9 +185,9 @@ thead th {
 
 .dms-cell {
     transition:
-        box-shadow 0.3s ease,
-        background-color 0.3s ease,
-        transform 0.4s ease;
+        box-shadow 0.2s ease,
+        background-color 0.2s ease,
+        transform 0.2s ease;
     /* Smooth transition for hover and unhover */
 }
 

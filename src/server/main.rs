@@ -66,26 +66,26 @@ fn base(content: Markup) -> Markup {
 #[debug_handler]
 async fn main_content() -> Markup {
     base(html! {
-        h1 id = "page-title" { "DeepScan" }
-        h2 {" A DMS Viewer" }
-        form
-            hx-post="/upload"
-            hx-encoding="multipart/form-data"
-            hx-include="[name='protein']"
-            hx-indicator="#upload-indicator"
-            {
-            p id="upload-indicator" class="htmx-indicator" {"Uploading file..."}
-            input type="file" name="file" {}
-            button{ "Upload" }
+        h1 id = "page-title" { span id="page-title-start"{"// "} span id="page-title-end"{"DEEPSCAN"} }
+        div id="select-and-upload"{
+            form
+                hx-post="/upload"
+                hx-encoding="multipart/form-data"
+                hx-include="[name='protein']"
+                hx-indicator="#upload-indicator"
+                {
+                p id="upload-indicator" class="htmx-indicator" {"Uploading file..."}
+                input type="file" name="file" {}
+                button{ "Upload" }
+            }
+            form
+                hx-get="/proteins"
+                hx-trigger="load"
+                {}
         }
-        form
-            hx-get="/proteins"
-            hx-trigger="load"
-            hx-swap="innerHtml"
-            {}
+
         div id="full-view"{
             div id="dms-table-container"{
-                h3{"Grid View"}
                 table id="dms-table"{
                     thead{
                         tr{
@@ -101,7 +101,6 @@ async fn main_content() -> Markup {
                 }
             }
             div id="full-variant-view"{
-                h3{"Variant View"}
                     div id="variant-view"{
                         div id="variant-view-body"{}
                         div id="structure"{
