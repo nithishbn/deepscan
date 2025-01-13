@@ -1,10 +1,8 @@
 :root {
-    --dms-box-height: 0.75vw;
-    --dms-table-font-size: 1.05vw;
-    --variant-view-font-size: 1.1vw;
+    --dms-box-height: 0.5vw;
+    --dms-table-font-size: 1em;
+    --variant-view-font-size: 0.85em;
     --background-color: white;
-    --highlight-text-color: 
-;
 }
 
 html {
@@ -22,7 +20,7 @@ h1 {
     font-family: "Berkeley Mono";
     font-weight: 900;
     font-style: bold;
-    font-size: 3vh;
+    font-size: 2em;
 }
 h1 #page-title-start {
     color: #d00125;
@@ -34,7 +32,7 @@ h1 #page-title-end {
 h2 {
     font-weight: 750;
     font-style: bold;
-    font-size: 2vh;
+    font-size: 2em;
 }
 
 form,
@@ -47,15 +45,12 @@ option {
     font-size: var(--dms-table-font-size);
 }
 input {
-    margin: 0.5vw 0.5vh;
+    margin: 0.25vw 0.25vh;
 }
-select,
 button {
-    margin: 0.5vw 0.5vh;
-    padding: 1vw 0.75vh;
-}
+    margin: 0.25vw 0.25vh;
+    padding: 0.75em 0.75em;
 
-button {
     border: none;
     border-radius: 4px;
     background-color: #f1f1f1;
@@ -73,11 +68,28 @@ select:hover {
     background-color: #e3e3e3;
     transition: background-color 0.3s ease;
 }
+#selection-form {
+    display: flex; /* Make the container a flexbox */
+    align-items: center; /* Vertically center align the select boxes */
+    margin-bottom: 1vh;
+}
+
+.select-div {
+    display: flex;
+    flex-direction: column; /* Keep label and select stacked inside each div */
+    padding: 0 1em; /* Adjust padding as necessary */
+}
+.select-div select,
+.select-div label {
+    padding-right: 0.5em;
+    padding-bottom: 0.5em;
+    padding-top: 0.5em;
+}
 
 #full-view {
     display: flex;
     flex-direction: row;
-    overflow-x: auto;
+    /* overflow-x: auto; */
     height: 100vh;
 }
 
@@ -86,35 +98,28 @@ select:hover {
     border-collapse: collapse;
     height: 100%;
     table-layout: fixed;
-
-    /* font-style: bold; */
-    width: auto;
-
-    /* width: fit-content; */
-    /* overflow: scroll; */
 }
 
 #dms-table-container {
-    flex: 1;
+    flex: 0 1 auto;
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
-    width: 100%;
+    width: 45vw;
+    /* width: 100%; */
 }
 
 #dms-table-container::-webkit-scrollbar {
     display: none;
 }
 #full-variant-view {
-    flex: 1;
-    width: 100%;
+    flex: 0 1 auto;
+    width: 75vw;
     height: 100%;
-    padding-left: 1vh;
-    padding-top: 1vh;
 }
 #variant-view {
-    flex: 1;
+    flex: 0 1 auto;
     display: flex;
     width: 100%;
     height: 100%;
@@ -124,15 +129,15 @@ select:hover {
 #variant-view-body {
     flex: 0 1 auto;
     height: 100%;
-    width: 35%;
-    padding-right: 1vh;
+    width: min-content;
+    margin: 0vw, 1vh;
 }
 
 #structure {
     flex: 0 1 auto;
-    width: 65%;
+    width: 100%;
     position: relative;
-    height: 50%;
+    height: 75%;
 }
 #variant-view tbody td,
 #variant-view tbody th {
@@ -189,6 +194,10 @@ select:hover {
         background-color 0.2s ease,
         transform 0.2s ease;
     /* Smooth transition for hover and unhover */
+}
+
+.dms-cell-no-data {
+    background-color: #f1f1f1;
 }
 
 .htmx-indicator {

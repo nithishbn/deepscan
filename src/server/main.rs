@@ -14,11 +14,11 @@ use chrono::DateTime;
 use csv::Error;
 use dms_viewer::Variant;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, query, query_as, query_scalar, PgPool};
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info, warn};
-use utils::Normalizer;
+use utils::{Normalizer, PosColor};
 
 #[derive(Clone)]
 struct AppState {
@@ -32,33 +32,57 @@ enum PositionFilter {
     NoOrder,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Paint {
+    #[serde(alias = "p_value")]
     PValue,
+    #[serde(alias = "log2_fold_change")]
     Log2FoldChange,
+    #[serde(alias = "statistic")]
     ZStatistic,
 }
-
-impl ToString for Paint {
-    fn to_string(&self) -> String {
-        match self {
-            Paint::PValue => "p_value".to_string(),
-            Paint::Log2FoldChange => "log2_fold_change".to_string(),
-            Paint::ZStatistic => "statistic".to_string(),
-        }
+impl std::fmt::Display for Paint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Paint::Log2FoldChange => "log2_fold_change",
+            Paint::PValue => "p_value",
+            Paint::ZStatistic => "statistic",
+        };
+        write!(f, "{}", output)
+    }
+}
+// impl ToString for Paint {
+// fn to_string(&self) -> String {
+// match self {
+// Paint::PValue => "p_value".to_string(),
+// Paint::Log2FoldChange => "log2_fold_change".to_string(),
+// Paint::ZStatistic => "statistic".to_string(),
+// }
+// }
+// }
+//
+// impl ToString for PositionFilter {
+// fn to_string(&self) -> String {
+// match self {
+// PositionFilter::MostSignificantPValue => "MostSignificantPValue".to_string(),
+// PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange".to_string(),
+// PositionFilter::LargestZStatistic => "LargestZStatistic".to_string(),
+// PositionFilter::NoOrder => "NoOrder".to_string(),
+// }
+// }
+// }
+impl std::fmt::Display for PositionFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            PositionFilter::MostSignificantPValue => "MostSignificantPValue",
+            PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange",
+            PositionFilter::LargestZStatistic => "LargestZStatistic",
+            PositionFilter::NoOrder => "NoOrder",
+        };
+        write!(f, "{}", output)
     }
 }
 
-impl ToString for PositionFilter {
-    fn to_string(&self) -> String {
-        match self {
-            PositionFilter::MostSignificantPValue => "MostSignificantPValue".to_string(),
-            PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange".to_string(),
-            PositionFilter::LargestZStatistic => "LargestZStatistic".to_string(),
-            PositionFilter::NoOrder => "NoOrder".to_string(),
-        }
-    }
-}
 #[derive(Deserialize)]
 struct TableParams {
     protein: String,
@@ -83,14 +107,13 @@ fn base(content: Markup) -> Markup {
                 title { "DeepScan" }
 
                 // Styles
-                // link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" {}
                 link rel="stylesheet" href="assets/style.css"{}
                 link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-light.css"{}
 
                 // Htmx + Alpine
                 script src="assets/htmx.min.js" {}
                 script src="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-plugin.js"{}
-                // script src="//unpkg.com/alpinejs" defer {}
+                script src="//unpkg.com/alpinejs" defer {}
 
             }
             body{
@@ -115,39 +138,11 @@ async fn main_content() -> Markup {
                 input type="file" name="file" {}
                 button{ "Upload" }
             }
-            form
+            form id="selection-form"
                 hx-get="/proteins"
-                hx-trigger="load"
-                {}
-            form{
-                label id="label-position-filter-select" for="position_filter"{"Select"}
-                select id="position-filter-select" name="position_filter"
-                    hx-get="/variants?page=1"
-                    hx-indicator="#loading"
-                    hx-include="[name='protein'],[name='condition'],[name='paint']"
-                    hx-target="#dms-table-body"
-                    hx-trigger="change,load-condition from:body delay:0.5s "
+                hx-trigger="load delay:0.5s"
                 {
-                    option value=("NoOrder") { ("No Order") }
-                    option value=("MostSignificantPValue") { ("Most significant p value") }
-                    option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
-                    option value=("LargestZStatistic") { ("Largest z statistic") }
                 }
-            }
-            form{
-                label id="label-paint-by-select" for="paint"{"Paint By"}
-                select id="paint-by-select" name="paint"
-                    hx-get="/variants?page=1"
-                    hx-indicator="#loading"
-                    hx-include="[name='protein'],[name='condition'],[name='position_filter']"
-                    hx-target="#dms-table-body"
-                    hx-trigger="change,load-condition from:body delay:0.5s "
-                {
-                    option value=("Log2FoldChange") { ("log2 Fold Change") }
-                    option value=("PValue") { ("p value") }
-                    option value=("ZStatistic") { ("z statistic") }
-                }
-            }
         }
 
         div id="full-view"{
@@ -166,11 +161,11 @@ async fn main_content() -> Markup {
                     {}
                 }
             }
-            div id="full-variant-view"{
+            script src="assets/viewer.js"{}
+                    div id="full-variant-view" x-data x-init="initMolstar()" {
                     div id="variant-view"{
                         div id="variant-view-body"{}
                         div id="structure"{
-                            script src="assets/viewer.js"{}
                         }
                     }
             }
@@ -237,17 +232,21 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
     match rows {
         Ok(proteins) => {
             html! {
-            label for="protein" id="protein-select-label"{"Protein"}
-            select id="protein-select" name="protein"
-                hx-get="/conditions"
-                hx-include="this"
-                hx-target="#condition-select"
-                hx-trigger="change,load delay:0.1s"
-                {
-                    @for protein in &proteins{
-                        option value=(protein.protein) { (protein.protein) }
+            #protein-select-div .select-div{
+                label for="protein" id="protein-select-label"{"Protein"}
+                select id="protein-select" name="protein"
+                    hx-get="/conditions"
+                    hx-include="this"
+                    hx-target="#condition-select"
+                    hx-trigger="change,load delay:0.1s"
+                    {
+                        @for protein in &proteins{
+                            option value=(protein.protein) { (protein.protein) }
+                        }
                     }
-                }
+            }
+
+            #condition-select-div .select-div{
             label for="condition" id="condition-select-label"{"Condition"}
             select id="condition-select" name="condition"
                 hx-get="/variants?page=1"
@@ -255,8 +254,38 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                 hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
                 hx-target="#dms-table-body"
                 hx-trigger="change,load-condition from:body delay:0.5s "
-                {
-                }
+                {}
+            }
+
+            #position-filter-select-div .select-div{
+            label id="label-position-filter-select" for="position_filter"{"Select"}
+            select id="position-filter-select" name="position_filter"
+                hx-get="/variants?page=1"
+                hx-indicator="#loading"
+                hx-include="[name='protein'],[name='condition'],[name='paint']"
+                hx-target="#dms-table-body"
+                hx-trigger="change,load-condition from:body delay:0.5s "
+            {
+                option value=("NoOrder") { ("No Order") }
+                option value=("MostSignificantPValue") { ("Most significant p value") }
+                option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
+                option value=("LargestZStatistic") { ("Largest z statistic") }
+            }
+            }
+
+            #paint-by-filter-select-div .select-div{
+            label id="label-paint-by-select" for="paint"{"Paint By"}
+            select id="paint-by-select" name="paint"
+                hx-get="/variants?page=1"
+                hx-indicator="#loading"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter']"
+                hx-target="#dms-table-body"
+                hx-trigger="change,load-condition from:body delay:0.5s "
+            {
+                option value=("Log2FoldChange") { ("log2 Fold Change") }
+                option value=("PValue") { ("p value") }
+                option value=("ZStatistic") { ("z statistic") }
+            }}
 
 
             div id="loading" class="htmx-indicator"{"Loading..."}
@@ -418,7 +447,13 @@ async fn get_variants(
                 Ok(max_abs_option) => match max_abs_option {
                     Some(max_abs) => {
                         let normalizer = utils::Normalizer { max_abs };
-
+                        let pos_color_pairs: Vec<PosColor> = variants
+                            .iter()
+                            .map(|variant| PosColor {
+                                pos: variant.pos,
+                                color: normalizer.get_color_hex(variant.log2_fold_change),
+                            })
+                            .collect();
                         let mut res = (
                             StatusCode::OK,
 
@@ -432,6 +467,7 @@ async fn get_variants(
                                         }
                                     }
                                 }
+                                script {(PreEscaped(format!("colorVariants({})",serde_json::json!(pos_color_pairs))))}
 
 
                             )
@@ -485,7 +521,7 @@ fn get_variant_cell(
                     pos,
                     amino_acid,
                     variant.id,
-                    Some(color)
+                    Some(color.clone())
                 ))(format_invisible_lazy_load_cell(&params)));
             } else {
                 return format_variant_cell(
@@ -528,14 +564,15 @@ fn format_variant_cell(
                     hx-vals=(format!("{{\"color\":\"{}\"}}",color))
                     hx-trigger="mouseover"
                     hx-target="#variant-view-body"
-                {});
+                {}
+                );
             }
         }
     }
     return html!(
         td
         id=(format!("{pos}{amino_acid}"))
-        class="dms-cell"
+        class="dms-cell-no-data"
         title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
 }
 
@@ -545,7 +582,7 @@ fn format_invisible_lazy_load_cell(params: &TableParams) -> Markup {
         id="invisible-lazy-load-cell"
         hx-trigger="intersect once"
         hx-target="#dms-table-body"
-        hx-get=(format!("/variants?page={}&protein={}&condition={}",params.page+1,params.protein,params.condition))
+        hx-get=(format!("/variants?page={}&protein={}&condition={}&position_filter={}&paint={}",params.page+1,params.protein,params.condition,params.position_filter,params.paint))
         hx-swap="beforeend"
         {});
 }
@@ -717,7 +754,6 @@ async fn get_variant_by_id(
                                 td{(format!("{:.3}",variant.p_value))}
         }
                         }
-                        script {(PreEscaped(format!("color_variant({},'{}')",variant.pos,color)))}
 
 
 

@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 pub(crate) struct Normalizer {
     pub(crate) max_abs: f64,
 }
@@ -36,4 +38,9 @@ impl Normalizer {
             format!("#{:02X}{:02X}FF", intensity, intensity) // Shades of blue in hex
         }
     }
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PosColor {
+    pub pos: i32,
+    pub color: String, // Assuming `color` is a String or any other type.
 }
