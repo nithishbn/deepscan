@@ -24,10 +24,47 @@ use utils::Normalizer;
 struct AppState {
     pool: PgPool,
 }
+#[derive(Deserialize, Debug)]
+enum PositionFilter {
+    MostSignificantPValue,
+    LargestLog2FoldChange,
+    LargestZStatistic,
+    NoOrder,
+}
+
+#[derive(Deserialize, Debug)]
+enum Paint {
+    PValue,
+    Log2FoldChange,
+    ZStatistic,
+}
+
+impl ToString for Paint {
+    fn to_string(&self) -> String {
+        match self {
+            Paint::PValue => "p_value".to_string(),
+            Paint::Log2FoldChange => "log2_fold_change".to_string(),
+            Paint::ZStatistic => "statistic".to_string(),
+        }
+    }
+}
+
+impl ToString for PositionFilter {
+    fn to_string(&self) -> String {
+        match self {
+            PositionFilter::MostSignificantPValue => "MostSignificantPValue".to_string(),
+            PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange".to_string(),
+            PositionFilter::LargestZStatistic => "LargestZStatistic".to_string(),
+            PositionFilter::NoOrder => "NoOrder".to_string(),
+        }
+    }
+}
 #[derive(Deserialize)]
 struct TableParams {
     protein: String,
     condition: String,
+    position_filter: PositionFilter,
+    paint: Paint,
     page: i32,
 }
 
@@ -82,6 +119,35 @@ async fn main_content() -> Markup {
                 hx-get="/proteins"
                 hx-trigger="load"
                 {}
+            form{
+                label id="label-position-filter-select" for="position_filter"{"Select"}
+                select id="position-filter-select" name="position_filter"
+                    hx-get="/variants?page=1"
+                    hx-indicator="#loading"
+                    hx-include="[name='protein'],[name='condition'],[name='paint']"
+                    hx-target="#dms-table-body"
+                    hx-trigger="change,load-condition from:body delay:0.5s "
+                {
+                    option value=("NoOrder") { ("No Order") }
+                    option value=("MostSignificantPValue") { ("Most significant p value") }
+                    option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
+                    option value=("LargestZStatistic") { ("Largest z statistic") }
+                }
+            }
+            form{
+                label id="label-paint-by-select" for="paint"{"Paint By"}
+                select id="paint-by-select" name="paint"
+                    hx-get="/variants?page=1"
+                    hx-indicator="#loading"
+                    hx-include="[name='protein'],[name='condition'],[name='position_filter']"
+                    hx-target="#dms-table-body"
+                    hx-trigger="change,load-condition from:body delay:0.5s "
+                {
+                    option value=("Log2FoldChange") { ("log2 Fold Change") }
+                    option value=("PValue") { ("p value") }
+                    option value=("ZStatistic") { ("z statistic") }
+                }
+            }
         }
 
         div id="full-view"{
@@ -171,6 +237,7 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
     match rows {
         Ok(proteins) => {
             html! {
+            label for="protein" id="protein-select-label"{"Protein"}
             select id="protein-select" name="protein"
                 hx-get="/conditions"
                 hx-include="this"
@@ -181,14 +248,17 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                         option value=(protein.protein) { (protein.protein) }
                     }
                 }
+            label for="condition" id="condition-select-label"{"Condition"}
             select id="condition-select" name="condition"
                 hx-get="/variants?page=1"
                 hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition']"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
                 hx-target="#dms-table-body"
                 hx-trigger="change,load-condition from:body delay:0.5s "
                 {
                 }
+
+
             div id="loading" class="htmx-indicator"{"Loading..."}
 
             }
@@ -210,43 +280,105 @@ async fn get_variants(
         ref protein,
         ref condition,
         page,
+        ref position_filter,
+        ref paint,
     } = params;
     info!(
-        "Getting variant for protein = {}, condition = {} and page = {}",
-        protein, condition, page
+        "Getting variant for protein = {}, condition = {} and page = {} and order={:?}",
+        protein, condition, page, position_filter
     );
     let offset = (page - 1) * PAGE_SIZE;
     info!("offset: {offset}");
-    let variants = sqlx::query_as!(
-        Variant,
-        r#"SELECT
-                dms.id,
-                dms.chunk,
-                dms.pos,
-                dms.p_value,
-                dms.created_at,
-                dms.log2_fold_change,
-                dms.log2_std_error,
-                dms.statistic,
-                dms.condition,
-                dms.aa,
-                dms.version,
-                proteins.protein
-            FROM dms
-            JOIN proteins ON dms.protein_id = proteins.id
-            WHERE proteins.protein = $1
-            AND dms.condition = $2
-            ORDER BY dms.pos, dms.aa
-            LIMIT $3 OFFSET $4
-            "#,
-        protein,
-        condition,
-        PAGE_SIZE as i64,
-        offset as i64
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap();
+    let variants: Vec<Variant> = match position_filter {
+        PositionFilter::NoOrder => sqlx::query_as!(
+            Variant,
+            r#"SELECT
+                        dms.id,
+                        dms.chunk,
+                        dms.pos,
+                        dms.p_value,
+                        dms.created_at,
+                        dms.log2_fold_change,
+                        dms.log2_std_error,
+                        dms.statistic,
+                        dms.condition,
+                        dms.aa,
+                        dms.version,
+                        proteins.protein
+                    FROM dms
+                    JOIN proteins ON dms.protein_id = proteins.id
+                    WHERE proteins.protein = $1
+                    AND dms.condition = $2
+                    ORDER BY dms.pos, dms.aa
+                    LIMIT $3 OFFSET $4
+                    "#,
+            protein,
+            condition,
+            PAGE_SIZE as i64,
+            offset as i64
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap(),
+        _ => sqlx::query_as!(
+            Variant,
+            r#"
+                WITH ranked_variants AS (
+                    SELECT
+                        dms.id,
+                        dms.chunk,
+                        dms.pos,
+                        dms.p_value,
+                        dms.created_at,
+                        dms.log2_fold_change,
+                        dms.log2_std_error,
+                        dms.statistic,
+                        dms.condition,
+                        dms.aa,
+                        dms.version,
+                        proteins.protein,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY dms.pos
+                            ORDER BY
+                                CASE $5
+                                    WHEN 'MostSignificantPValue' THEN dms.p_value
+                                    WHEN 'LargestLog2FoldChange' THEN -dms.log2_fold_change
+                                    WHEN 'LargestZStatistic' THEN -dms.statistic
+                                    ELSE NULL
+                                END ASC
+                        ) AS rn
+                    FROM dms
+                    JOIN proteins ON dms.protein_id = proteins.id
+                    WHERE proteins.protein = $1
+                    AND dms.condition = $2
+                )
+                SELECT
+                    id,
+                    chunk,
+                    pos,
+                    p_value,
+                    created_at,
+                    log2_fold_change,
+                    log2_std_error,
+                    statistic,
+                    condition,
+                    aa,
+                    version,
+                    protein
+                FROM ranked_variants
+                WHERE rn = 1
+                LIMIT $3 OFFSET $4
+                "#,
+            protein,
+            condition,
+            PAGE_SIZE as i64,
+            offset as i64,
+            position_filter.to_string()
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap(),
+    };
 
     if let Some(max_pos) = &variants.iter().map(|variant| variant.pos).max() {
         if let Some(min_pos) = &variants.iter().map(|variant| variant.pos).min() {
@@ -254,15 +386,31 @@ async fn get_variants(
             info!("{}", query_length);
             let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
             debug!("{:?}", &positions);
-            match query_scalar!(
+            let query = format!(
                 r#"
                 select
-                    max(abs(log2_fold_change))
+                    max(abs({}))
+                from dms
+                join proteins on dms.protein_id = proteins.id
+                where proteins.protein = $1 and dms.condition = $2;"#,
+                paint.to_string()
+            );
+            match sqlx::query_scalar!(
+                r#"
+                select
+                    max(abs(
+                        case $3
+                            when 'p_value' then dms.p_value
+                            when 'log2_fold_change' then dms.log2_fold_change
+                            when 'statistic' then dms.statistic
+                        end
+                    ))
                 from dms
                 join proteins on dms.protein_id = proteins.id
                 where proteins.protein = $1 and dms.condition = $2;"#,
                 protein,
-                condition
+                condition,
+                paint.to_string()
             )
             .fetch_one(&state.pool)
             .await
