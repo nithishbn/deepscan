@@ -23,7 +23,7 @@
               # mkdir -p ./db/
             export PGDATA="$(pwd)/db"
             export PGHOST="$(pwd)"
-            export PGPORT="5431"
+            export PGPORT="5432"
             if [[ ! $(grep listen_address $PGDATA/postgresql.conf) ]]; then
             echo "db does not exist, creating "
             initdb -D $PGDATA --no-locale --encoding=UTF8
