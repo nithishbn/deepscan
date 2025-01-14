@@ -1,7 +1,7 @@
 :root {
     --dms-box-height: 0.5vw;
     --dms-table-font-size: 1em;
-    --variant-view-font-size: 0.85em;
+    --variant-view-font-size: 1em;
     --background-color: white;
 }
 
@@ -22,9 +22,11 @@ h1 {
     font-style: bold;
     font-size: 2em;
 }
+
 h1 #page-title-start {
     color: #d00125;
 }
+
 h1 #page-title-end {
     color: midnightblue;
 }
@@ -44,9 +46,11 @@ option {
     font-weight: 600;
     font-size: var(--dms-table-font-size);
 }
+
 input {
     margin: 0.25vw 0.25vh;
 }
+
 button {
     margin: 0.25vw 0.25vh;
     padding: 0.75em 0.75em;
@@ -56,6 +60,7 @@ button {
     background-color: #f1f1f1;
     transition: background-color 0.4s ease;
 }
+
 select {
     height: fit-content;
     border: none;
@@ -63,22 +68,29 @@ select {
     background-color: #f1f1f1;
     transition: background-color 0.4s ease;
 }
+
 button:hover,
 select:hover {
     background-color: #e3e3e3;
     transition: background-color 0.3s ease;
 }
+
 #selection-form {
-    display: flex; /* Make the container a flexbox */
-    align-items: center; /* Vertically center align the select boxes */
+    display: flex;
+    /* Make the container a flexbox */
+    align-items: center;
+    /* Vertically center align the select boxes */
     margin-bottom: 1vh;
 }
 
 .select-div {
     display: flex;
-    flex-direction: column; /* Keep label and select stacked inside each div */
-    padding: 0 1em; /* Adjust padding as necessary */
+    flex-direction: column;
+    /* Keep label and select stacked inside each div */
+    padding: 0 1em;
+    /* Adjust padding as necessary */
 }
+
 .select-div select,
 .select-div label {
     padding-right: 0.5em;
@@ -106,56 +118,44 @@ select:hover {
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
-    width: 45vw;
-    /* width: 100%; */
 }
 
 #dms-table-container::-webkit-scrollbar {
     display: none;
 }
-#full-variant-view {
-    flex: 0 1 auto;
-    width: 75vw;
-    height: 100%;
+
 }
+
 #variant-view {
-    flex: 0 1 auto;
+    flex: 1;
+}
+
+#variant-view-table {
     display: flex;
-    width: 100%;
-    height: 100%;
-    flex-direction: row;
+    margin: 0vw 1vh;
+}
+
+#variant-view-header {
+    font-weight: 600;
 }
 
 #variant-view-body {
-    flex: 0 1 auto;
-    height: 100%;
-    width: min-content;
-    margin: 0vw, 1vh;
+    font-weight: 500;
+}
+
+#variant-view-header,
+#variant-view-body {
+    /* height: 100%; */
+    font-size: var(--variant-view-font-size);
+    margin: 1vh;
 }
 
 #structure {
-    flex: 0 1 auto;
+    /* flex: 1 1 auto; */
+    flex: 1;
     width: 100%;
     position: relative;
-    height: 75%;
-}
-#variant-view tbody td,
-#variant-view tbody th {
-    /* display: block; */
-    font-size: var(--variant-view-font-size);
-    width: var(--variant-view-font-size);
-    height: var(--variant-view-font-size);
-    padding-top: 1vh;
-    padding-right: 1vw;
-}
-
-#variant-view tbody th {
-    font-weight: 500;
-    text-align: left;
-}
-#variant-view tbody td {
-    font-weight: 400;
-    text-align: center;
+    height: 65%;
 }
 
 #dms-table-container thead th,
@@ -171,13 +171,15 @@ select:hover {
     padding: var(--dms-box-height);
     font-size: var(--dms-table-font-size);
 }
+
 #dms-table-container thead th {
     /* display: block; */
     font-size: var(--dms-table-font-size);
     padding: var(--dms-box-height);
     position: sticky;
     background-color: white;
-    top: 0; /* Don't forget this, required for the stickiness */
+    top: 0;
+    /* Don't forget this, required for the stickiness */
 }
 
 .dms-cell:hover {

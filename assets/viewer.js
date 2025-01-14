@@ -24,8 +24,6 @@ function refresh_and_load_pdb_into_viewer(pdb_id) {
 }
 
 function colorVariants(variants) {
-  // Prepare the data array to color the variants
-  console.log(variants);
   const variantData = variants.map((variant) => ({
     residue_number: variant.pos,
     color: variant.color,
@@ -36,4 +34,12 @@ function colorVariants(variants) {
     data: variantData,
     nonSelectedColor: { r: 255, g: 255, b: 255 },
   });
+}
+
+function focusVariant(pos) {
+  viewerInstance.visual.focus([
+    {
+      residue_number: pos,
+    },
+  ]);
 }

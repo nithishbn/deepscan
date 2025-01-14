@@ -156,19 +156,28 @@ async fn main_content() -> Markup {
                             }
                         }
                     }
-                    tbody
-                    id="dms-table-body"
-                    {}
+                    tbody id="dms-table-body"{}
                 }
             }
             script src="assets/viewer.js"{}
-                    div id="full-variant-view" x-data x-init="initMolstar()" {
-                    div id="variant-view"{
-                        div id="variant-view-body"{}
-                        div id="structure"{
-                        }
+            div id="variant-view"{
+                div id="variant-view-table" x-data x-init="initMolstar()"{
+                    div id="variant-view-header"{
+                        div {"Protein: "}
+                        div {"Condition: "}
+                        div {"Position: "}
+                        div {"Amino Acid: "}
+                        div {"log2 Fold Change: "}
+                        div {"log2 Std Error: "}
+                        div {"z-statistic: "}
+                        div {"p-value: "}
                     }
+                    div id="variant-view-body"{}
+                }
             }
+
+
+            div id="structure"{}
 
 
 
@@ -415,15 +424,7 @@ async fn get_variants(
             info!("{}", query_length);
             let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
             debug!("{:?}", &positions);
-            let query = format!(
-                r#"
-                select
-                    max(abs({}))
-                from dms
-                join proteins on dms.protein_id = proteins.id
-                where proteins.protein = $1 and dms.condition = $2;"#,
-                paint.to_string()
-            );
+
             match sqlx::query_scalar!(
                 r#"
                 select
@@ -507,7 +508,6 @@ fn get_variant_cell(
     end_of_row: bool,
     normalizer: &Normalizer,
 ) -> Markup {
-    // info!("{}",pos%PAGE_SIZE==0);
     if end_of_row {
         info!("reached end of row")
     };
@@ -694,11 +694,10 @@ fn read_tsv(file_contents: Bytes, protein: &str) -> Result<Vec<Variant>, Error> 
 async fn get_variant_by_id(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(_params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     // info!("Acquired variant {id}");
     let pool = &state.pool;
-    let color = params.get("color").expect("color not found");
     if let Ok(variant) = query_as!(
         Variant,
         r#"
@@ -725,39 +724,17 @@ async fn get_variant_by_id(
     .await
     {
         let mut res = html!(
-                    table{
-                        tr{
-                            th{"Protein"}
-                            td{(variant.protein)}
-                        }
-                        tr{ th{"Condition"}
-                            td{(variant.condition)}
-                        }
-                        tr{ th{"Position"}
-                            td{(variant.pos)}
-                        }
-                        tr{ th{"Amino Acid"}
-                            td{(variant.aa)}
-                        }
-                        tr{ th{"log2 Fold Change"}
-                            td{(format!("{:.3}",variant.log2_fold_change))}
-                        }
-                        tr{                    th{"log2 Standard Error"}
-                            td{(format!("{:.3}",variant.log2_std_error))}
+            div{(variant.protein)}
+            div{(variant.condition)}
+            div{(variant.pos)}
+            div{(variant.aa)}
+            div{(format!("{:.3}",variant.log2_fold_change))}
+            div{(format!("{:.3}",variant.log2_std_error))}
+            div{(format!("{:.3}",variant.statistic))}
+            div{(format!("{:.5}",variant.p_value))}
 
-        }
-                        tr{                    th{"z-statistic"}
-                            td{(format!("{:.3}",variant.statistic))}
-                        }
-                            tr{th{"p value"}
-
-                                td{(format!("{:.3}",variant.p_value))}
-        }
-                        }
-
-
-
-                )
+            script {(PreEscaped(format!("focusVariant({})",variant.pos)))}
+        )
         .into_response();
         res.headers_mut()
             .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
