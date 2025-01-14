@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{
     prelude::FromRow,
@@ -22,11 +23,11 @@ pub struct Variant {
     #[serde(default = "default_protein")]
     pub protein: String,
     #[serde(default = "default_timestamp")]
-    pub created_at: DateTime<Utc>,
+    pub created_on: NaiveDateTime,
 }
 
-fn default_timestamp() -> DateTime<Utc> {
-    Utc::now()
+fn default_timestamp() -> NaiveDateTime {
+    Utc::now().naive_utc()
 }
 
 fn default_protein() -> String {

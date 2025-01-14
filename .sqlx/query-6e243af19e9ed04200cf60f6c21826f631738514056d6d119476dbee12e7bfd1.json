@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT condition\n            FROM variant\n            JOIN protein ON variant.protein_id = protein.id\n            WHERE protein.name = $1;\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "condition",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6e243af19e9ed04200cf60f6c21826f631738514056d6d119476dbee12e7bfd1"
+}

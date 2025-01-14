@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::env;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
@@ -14,14 +15,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use csv::Error;
 use dms_viewer::Variant;
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, query, query_as, query_scalar, PgPool};
+use sqlx::{query, query_as, query_scalar, PgPool};
 use tower_http::services::ServeDir;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use utils::{Normalizer, PosColor};
 #[derive(Clone, Debug)]
 pub struct EnvironmentVariables {
@@ -31,14 +32,13 @@ pub struct EnvironmentVariables {
 
 impl EnvironmentVariables {
     pub fn from_env() -> anyhow::Result<Self> {
-        dotenv::dotenv().ok();
-
+        dotenvy::dotenv()?;
         Ok(Self {
-            database_url: match dotenv::var("DATABASE_URL") {
+            database_url: match env::var("DATABASE_URL") {
                 Ok(url) => url.into(),
                 Err(err) => bail!("missing DATABASE_URL: {err}"),
             },
-            port: match dotenv::var("PORT") {
+            port: match env::var("PORT") {
                 Ok(port) => port.parse()?,
                 _ => 8000,
             },
@@ -131,6 +131,7 @@ fn base(content: Markup) -> Markup {
                 script src="assets/htmx.min.js" {}
                 script src="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-plugin.js"{}
                 script src="//unpkg.com/alpinejs" defer {}
+                meta name="htmx-config" content="{\"responseHandling\": [{\"code\":\".*\", \"swap\": true}]}"{}
 
             }
             body{
@@ -150,6 +151,7 @@ async fn main_content() -> Markup {
                 hx-encoding="multipart/form-data"
                 hx-include="[name='protein']"
                 hx-indicator="#upload-indicator"
+                hx-target="this"
                 {
                 p id="upload-indicator" class="htmx-indicator" {"Uploading file..."}
                 input type="file" name="file" {}
@@ -213,9 +215,9 @@ async fn get_conditions(
     let rows = sqlx::query!(
         r#"
             SELECT DISTINCT condition
-            FROM dms
-            JOIN proteins ON dms.protein_id = proteins.id
-            WHERE proteins.protein = $1;
+            FROM variant
+            JOIN protein ON variant.protein_id = protein.id
+            WHERE protein.name = $1;
             "#,
         protein
     )
@@ -252,7 +254,7 @@ async fn get_conditions(
 
 async fn get_proteins(State(state): State<AppState>) -> Markup {
     info!("getting proteins");
-    let rows = sqlx::query!("SELECT DISTINCT id, protein FROM proteins;")
+    let rows = sqlx::query!("SELECT DISTINCT id, name FROM protein;")
         .fetch_all(&state.pool)
         .await;
     match rows {
@@ -267,7 +269,7 @@ async fn get_proteins(State(state): State<AppState>) -> Markup {
                     hx-trigger="change,load delay:0.1s"
                     {
                         @for protein in &proteins{
-                            option value=(protein.protein) { (protein.protein) }
+                            option value=(protein.name) { (protein.name) }
                         }
                     }
             }
@@ -348,23 +350,23 @@ async fn get_variants(
         PositionFilter::NoOrder => sqlx::query_as!(
             Variant,
             r#"SELECT
-                        dms.id,
-                        dms.chunk,
-                        dms.pos,
-                        dms.p_value,
-                        dms.created_at,
-                        dms.log2_fold_change,
-                        dms.log2_std_error,
-                        dms.statistic,
-                        dms.condition,
-                        dms.aa,
-                        dms.version,
-                        proteins.protein
-                    FROM dms
-                    JOIN proteins ON dms.protein_id = proteins.id
-                    WHERE proteins.protein = $1
-                    AND dms.condition = $2
-                    ORDER BY dms.pos, dms.aa
+                        variant.id,
+                        variant.chunk,
+                        variant.pos,
+                        variant.p_value,
+                        variant.created_on,
+                        variant.log2_fold_change,
+                        variant.log2_std_error,
+                        variant.statistic,
+                        variant.condition,
+                        variant.aa,
+                        variant.version,
+                        protein.name as protein
+                    FROM variant
+                    JOIN protein ON variant.protein_id = protein.id
+                    WHERE protein.name = $1
+                    AND variant.condition = $2
+                    ORDER BY variant.pos, variant.aa
                     LIMIT $3 OFFSET $4
                     "#,
             protein,
@@ -380,39 +382,39 @@ async fn get_variants(
             r#"
                 WITH ranked_variants AS (
                     SELECT
-                        dms.id,
-                        dms.chunk,
-                        dms.pos,
-                        dms.p_value,
-                        dms.created_at,
-                        dms.log2_fold_change,
-                        dms.log2_std_error,
-                        dms.statistic,
-                        dms.condition,
-                        dms.aa,
-                        dms.version,
-                        proteins.protein,
+                        variant.id,
+                        variant.chunk,
+                        variant.pos,
+                        variant.p_value,
+                        variant.created_on,
+                        variant.log2_fold_change,
+                        variant.log2_std_error,
+                        variant.statistic,
+                        variant.condition,
+                        variant.aa,
+                        variant.version,
+                        protein.name as protein,
                         ROW_NUMBER() OVER (
-                            PARTITION BY dms.pos
+                            PARTITION BY variant.pos
                             ORDER BY
                                 CASE $5
-                                    WHEN 'MostSignificantPValue' THEN dms.p_value
-                                    WHEN 'LargestLog2FoldChange' THEN -dms.log2_fold_change
-                                    WHEN 'LargestZStatistic' THEN -dms.statistic
+                                    WHEN 'MostSignificantPValue' THEN variant.p_value
+                                    WHEN 'LargestLog2FoldChange' THEN -variant.log2_fold_change
+                                    WHEN 'LargestZStatistic' THEN -variant.statistic
                                     ELSE NULL
                                 END ASC
                         ) AS rn
-                    FROM dms
-                    JOIN proteins ON dms.protein_id = proteins.id
-                    WHERE proteins.protein = $1
-                    AND dms.condition = $2
+                    FROM variant
+                    JOIN protein ON variant.protein_id = protein.id
+                    WHERE protein.name = $1
+                    AND variant.condition = $2
                 )
                 SELECT
                     id,
                     chunk,
                     pos,
                     p_value,
-                    created_at,
+                    created_on,
                     log2_fold_change,
                     log2_std_error,
                     statistic,
@@ -449,14 +451,14 @@ async fn get_variants(
                 select
                     max(abs(
                         case $3
-                            when 'p_value' then dms.p_value
-                            when 'log2_fold_change' then dms.log2_fold_change
-                            when 'statistic' then dms.statistic
+                            when 'p_value' then variant.p_value
+                            when 'log2_fold_change' then variant.log2_fold_change
+                            when 'statistic' then variant.statistic
                         end
                     ))
-                from dms
-                join proteins on dms.protein_id = proteins.id
-                where proteins.protein = $1 and dms.condition = $2;"#,
+                from variant
+                join protein on variant.protein_id = protein.id
+                where protein.name = $1 and variant.condition = $2;"#,
                 protein,
                 condition,
                 paint.to_string()
@@ -512,7 +514,11 @@ async fn get_variants(
                 }
             }
         } else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, html!("couldn't find min pos")).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                html!("couldn't find min pos"),
+            )
+                .into_response();
         }
     } else {
         return (StatusCode::INTERNAL_SERVER_ERROR, html!()).into_response();
@@ -608,7 +614,7 @@ fn format_invisible_lazy_load_cell(params: &TableParams) -> Markup {
 
 fn upload_file_component_with_message(message: &str) -> Markup {
     info!("IN");
-    html! { p id="upload-file-message" {(message)}
+    html! { div id="upload-file-message" {(message)}
         input type="file" name="file" {}
         button{ "Upload" }
     }
@@ -678,15 +684,14 @@ fn read_tsv(file_contents: Bytes, protein: &str) -> (Vec<Variant>, Vec<Error>) {
         .delimiter(b'\t') // Specify TSV format
         .has_headers(true)
         .from_reader(cursor);
-    let created_at =
-        DateTime::from_timestamp(chrono::Utc::now().timestamp(), 0).expect("timestamp failed");
+    let created_on = Utc::now().naive_utc();
     let mut variants = vec![];
     let mut errors = vec![];
     for result in reader.deserialize::<Variant>() {
         match result {
             Ok(mut variant) => {
                 variant.protein = protein.to_string();
-                variant.created_at = created_at;
+                variant.created_on = created_on;
                 variants.push(variant);
             }
             Err(e) => {
@@ -708,21 +713,21 @@ async fn get_variant_by_id(
         Variant,
         r#"
         SELECT
-                dms.id,
-                dms.chunk,
-                dms.pos,
-                dms.p_value,
-                dms.created_at,
-                dms.log2_fold_change,
-                dms.log2_std_error,
-                dms.statistic,
-                dms.condition,
-                dms.aa,
-                dms.version,
-                proteins.protein
-            FROM dms
-            JOIN proteins ON dms.protein_id = proteins.id
-            WHERE dms.id = $1;
+                variant.id,
+                variant.chunk,
+                variant.pos,
+                variant.p_value,
+                variant.created_on,
+                variant.log2_fold_change,
+                variant.log2_std_error,
+                variant.statistic,
+                variant.condition,
+                variant.aa,
+                variant.version,
+                protein.name as protein
+            FROM variant
+            JOIN protein ON variant.protein_id = protein.id
+            WHERE variant.id = $1;
     "#,
         id
     )
@@ -750,38 +755,73 @@ async fn get_variant_by_id(
         return html!("Variant not found!").into_response();
     }
 }
+#[derive(sqlx::FromRow)]
+struct Id {
+    id: i32,
+}
 async fn insert(pool: &PgPool, variants: &[Variant], protein: &str) -> Result<u64, sqlx::Error> {
     info!("Inserting {} variants into db", variants.len());
     let mut txn = pool.begin().await?;
-    let protein_id: i32 = query_scalar!("SELECT id FROM proteins WHERE protein = $1", protein)
+    let chunks: Vec<i32> = variants.iter().map(|v| v.chunk).collect();
+    let positions: Vec<i32> = variants.iter().map(|v| v.pos).collect();
+    let conditions: Vec<String> = variants.iter().map(|v| v.condition.clone()).collect();
+    let aas: Vec<String> = variants.iter().map(|v| v.aa.clone()).collect();
+    let log2_fold_changes: Vec<f64> = variants.iter().map(|v| v.log2_fold_change).collect();
+    let log2_std_errors: Vec<f64> = variants.iter().map(|v| v.log2_std_error).collect();
+    let statistics: Vec<f64> = variants.iter().map(|v| v.statistic).collect();
+    let p_values: Vec<f64> = variants.iter().map(|v| v.p_value).collect();
+    let versions: Vec<String> = variants.iter().map(|v| v.version.clone()).collect();
+    let created_ons: Vec<NaiveDateTime> = variants.iter().map(|v| v.created_on).collect();
+    let protein_id: i32 = query_scalar!("SELECT id FROM protein WHERE name = $1", protein)
         .fetch_one(&mut *txn) // Fetch one record, assuming the protein exists
         .await?;
-    let mut rows_affected = 0;
-    for variant in variants {
-        // Perform the insert query
-        match query!(
-                    "INSERT INTO dms (chunk, pos, condition, aa, log2_fold_change, log2_std_error, statistic, p_value, version, protein_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                    &variant.chunk,
-                    variant.pos,
-                    variant.condition,
-                    &variant.aa,
-                    variant.log2_fold_change,
-                    variant.log2_std_error,
-                    variant.statistic,
-                    variant.p_value,
-                    variant.version,
-                    protein_id,
-                    variant.created_at
-                )
-                .execute(&mut *txn)
-                .await
-                {
-                    Ok(result) => {rows_affected+=result.rows_affected();},
-                    Err(_)=>{info!("aaaah"); 0;}
-                };
-    }
+    info!("Found protein {} at id {}", protein, protein_id);
+    let sql = r#"
+            INSERT INTO variant
+            (
+                chunk,
+                pos,
+                condition,
+                aa,
+                log2_fold_change,
+                log2_std_error,
+                statistic,
+                p_value,
+                version,
+                protein_id,
+                created_on
+            )
+            SELECT * FROM UNNEST(
+                $1::INT8[],
+                $2::INT8[],
+                $3::VARCHAR(30)[],
+                $4::VARCHAR(30)[],
+                $5::DOUBLE PRECISION[],
+                $6::DOUBLE PRECISION[],
+                $7::DOUBLE PRECISION[],
+                $8::DOUBLE PRECISION[],
+                $9::VARCHAR(30)[],
+                $10::INT8[],
+                $11::TIMESTAMP[]
+            ) RETURNING id;
+        "#;
+    let rows: Vec<Id> = query_as::<_, Id>(sql)
+        .bind(chunks)
+        .bind(positions)
+        .bind(conditions)
+        .bind(aas)
+        .bind(log2_fold_changes)
+        .bind(log2_std_errors)
+        .bind(statistics)
+        .bind(p_values)
+        .bind(versions)
+        .bind(vec![protein_id; variants.len()]) // A vector filled with the protein_id for all rows
+        .bind(created_ons)
+        .fetch_all(pool)
+        .await?;
 
     txn.commit().await?;
+    let rows_affected = rows.into_iter().map(|r| r.id).len() as u64;
     info!("rows affected {}", rows_affected);
     Ok(rows_affected)
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT id, protein FROM proteins;",
+  "query": "SELECT DISTINCT id, name FROM protein;",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "protein",
-        "type_info": "Text"
+        "name": "name",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "47c24c4fc38e0936e30cf9a3024c9d9ee6abd1040567ac29d801ca10d58321ab"
+  "hash": "b497bd92c86aecccf1d535891e9b5f67c80b0fc8041b427370d47f7366f41a04"
 }
