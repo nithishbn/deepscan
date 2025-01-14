@@ -614,38 +614,24 @@ async fn upload_file(State(state): State<AppState>, mut multipart: Multipart) ->
         Some(protein) => {
             // Proceed if file exists, otherwise return an error
             if let Some(file_data) = file {
-                match read_tsv(file_data, &protein) {
-                    Ok(variants) => {
-                        match insert(&state.pool, &variants, &protein).await {
-                            Ok(result) => {
-                                let mut res = upload_file_component_with_message(&format!(
-                                    "File successfully uploaded. {result} rows affected"
-                                ))
-                                .into_response();
-                                res.headers_mut().insert(
-                                    "HX-Trigger",
-                                    HeaderValue::from_static("load-condition"),
-                                );
-                                res
-                            }
-                            Err(err) => (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                upload_file_component_with_message(&err.to_string()),
-                            )
-                                .into_response(),
-                        }
-                        // Return the processed result
+                let (variants, errors) = read_tsv(file_data, &protein);
+
+                match insert(&state.pool, &variants, &protein).await {
+                    Ok(result) => {
+                        let mut res = upload_file_component_with_message(&format!(
+                            "File successfully uploaded. {result} rows affected with {} errors",
+                            errors.len()
+                        ))
+                        .into_response();
+                        res.headers_mut()
+                            .insert("HX-Trigger", HeaderValue::from_static("load-condition"));
+                        res
                     }
-                    Err(err) => {
-                        // Handle any error from read_tsv
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            upload_file_component_with_message(&format!(
-                                "Error processing file - {err}"
-                            )),
-                        )
-                            .into_response()
-                    }
+                    Err(err) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        upload_file_component_with_message(&err.to_string()),
+                    )
+                        .into_response(),
                 }
             } else {
                 // No file uploaded
@@ -666,7 +652,7 @@ async fn upload_file(State(state): State<AppState>, mut multipart: Multipart) ->
         }
     }
 }
-fn read_tsv(file_contents: Bytes, protein: &str) -> Result<Vec<Variant>, Error> {
+fn read_tsv(file_contents: Bytes, protein: &str) -> (Vec<Variant>, Vec<Error>) {
     info!("reading file");
     let cursor = Cursor::new(file_contents);
     let mut reader = csv::ReaderBuilder::new()
@@ -676,19 +662,20 @@ fn read_tsv(file_contents: Bytes, protein: &str) -> Result<Vec<Variant>, Error> 
     let created_at =
         DateTime::from_timestamp(chrono::Utc::now().timestamp(), 0).expect("timestamp failed");
     let mut variants = vec![];
+    let mut errors = vec![];
     for result in reader.deserialize::<Variant>() {
-        // If deserialization fails, return the error
-        let mut variant = result.map_err(|e| {
-            error!("Failed to deserialize row: {}", e);
-            e
-        })?;
-
-        // Modify the variant fields
-        variant.protein = protein.to_string();
-        variant.created_at = created_at;
-        variants.push(variant);
+        match result {
+            Ok(mut variant) => {
+                variant.protein = protein.to_string();
+                variant.created_at = created_at;
+                variants.push(variant);
+            }
+            Err(e) => {
+                errors.push(e);
+            }
+        }
     }
-    Ok(variants)
+    (variants, errors)
 }
 
 async fn get_variant_by_id(
