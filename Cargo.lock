@@ -51,6 +51,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.95"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
+
+[[package]]
 name = "async-trait"
 version = "0.1.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -366,9 +372,11 @@ dependencies = [
 name = "dms-viewer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "chrono",
  "csv",
+ "dotenv",
  "futures-util",
  "maud",
  "serde",
@@ -380,6 +388,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
 name = "dotenvy"

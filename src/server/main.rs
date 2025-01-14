@@ -1,5 +1,9 @@
+use std::borrow::Cow;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::{collections::HashMap, io::Cursor};
+use tokio::net::TcpListener;
 mod utils;
+use anyhow::bail;
 use axum::extract::Path;
 use axum::{
     body::Bytes,
@@ -19,10 +23,42 @@ use sqlx::{postgres::PgPoolOptions, query, query_as, query_scalar, PgPool};
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info, warn};
 use utils::{Normalizer, PosColor};
+#[derive(Clone, Debug)]
+pub struct EnvironmentVariables {
+    pub database_url: Cow<'static, str>,
+    pub port: u16,
+}
+
+impl EnvironmentVariables {
+    pub fn from_env() -> anyhow::Result<Self> {
+        dotenv::dotenv().ok();
+
+        Ok(Self {
+            database_url: match dotenv::var("DATABASE_URL") {
+                Ok(url) => url.into(),
+                Err(err) => bail!("missing DATABASE_URL: {err}"),
+            },
+            port: match dotenv::var("PORT") {
+                Ok(port) => port.parse()?,
+                _ => 8000,
+            },
+        })
+    }
+}
 
 #[derive(Clone)]
 struct AppState {
     pool: PgPool,
+    env: EnvironmentVariables,
+}
+impl AppState {
+    pub async fn from_env() -> anyhow::Result<Self> {
+        let env = EnvironmentVariables::from_env()?;
+        Ok(Self {
+            pool: PgPool::connect(&env.database_url).await?,
+            env: EnvironmentVariables::from_env()?,
+        })
+    }
 }
 #[derive(Deserialize, Debug)]
 enum PositionFilter {
@@ -51,26 +87,7 @@ impl std::fmt::Display for Paint {
         write!(f, "{}", output)
     }
 }
-// impl ToString for Paint {
-// fn to_string(&self) -> String {
-// match self {
-// Paint::PValue => "p_value".to_string(),
-// Paint::Log2FoldChange => "log2_fold_change".to_string(),
-// Paint::ZStatistic => "statistic".to_string(),
-// }
-// }
-// }
-//
-// impl ToString for PositionFilter {
-// fn to_string(&self) -> String {
-// match self {
-// PositionFilter::MostSignificantPValue => "MostSignificantPValue".to_string(),
-// PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange".to_string(),
-// PositionFilter::LargestZStatistic => "LargestZStatistic".to_string(),
-// PositionFilter::NoOrder => "NoOrder".to_string(),
-// }
-// }
-// }
+
 impl std::fmt::Display for PositionFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let output = match self {
@@ -768,17 +785,12 @@ async fn insert(pool: &PgPool, variants: &[Variant], protein: &str) -> Result<u6
 }
 
 #[tokio::main]
-async fn main() -> Result<(), sqlx::Error> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    info!("hello");
-    // build our application with a single route
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect("postgres://postgres@localhost/postgres")
-        .await?;
-    let state = AppState { pool };
-    // run it with hyper on localhost:3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    info!("Welcome to DeepScan!");
+    let state = AppState::from_env().await?;
+    let listener =
+        TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, state.env.port))).await?;
 
     let app = Router::new()
         .route("/", get(main_content))
@@ -787,7 +799,7 @@ async fn main() -> Result<(), sqlx::Error> {
         .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
         .route("/variants/:id", get(get_variant_by_id))
-        .layer(DefaultBodyLimit::max(1024 * 1024 * 100000000))
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 100000))
         .with_state(state)
         .nest_service("/assets", ServeDir::new("assets"));
     axum::serve(listener, app.into_make_service())
