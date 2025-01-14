@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                select\n                    max(abs(\n                        case $3\n                            when 'p_value' then dms.p_value\n                            when 'log2_fold_change' then dms.log2_fold_change\n                            when 'statistic' then dms.statistic\n                        end\n                    ))\n                from dms\n                join proteins on dms.protein_id = proteins.id\n                where proteins.protein = $1 and dms.condition = $2;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3ee72e2644687cbf6fc56f00a9f4e4c0000803a85bee33bdcb4ae0691a9ff468"
+}
