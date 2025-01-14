@@ -434,7 +434,9 @@ async fn get_variants(
         .await
         .unwrap(),
     };
-
+    if variants.is_empty() {
+        return (StatusCode::NOT_FOUND, html!("No variants found")).into_response();
+    }
     if let Some(max_pos) = &variants.iter().map(|variant| variant.pos).max() {
         if let Some(min_pos) = &variants.iter().map(|variant| variant.pos).min() {
             let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
@@ -510,7 +512,7 @@ async fn get_variants(
                 }
             }
         } else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, html!()).into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, html!("couldn't find min pos")).into_response();
         }
     } else {
         return (StatusCode::INTERNAL_SERVER_ERROR, html!()).into_response();
