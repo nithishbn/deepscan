@@ -33,11 +33,20 @@ h1 {
 h1 #page-title-start {
     color: #d00125;
 }
-
 h1 #page-title-end {
     color: midnightblue;
+    opacity: 1; /* Start with opacity 0 (invisible) */
+    transition: opacity 0.4s ease;
 }
 
+/* Fade-in animation when the page loads */
+h1 #page-title-end.htmx-added {
+    opacity: 0; /* Fade to visible */
+}
+h1 #page-title-end.htmx-swapping {
+    opacity: 0;
+    transition: opacity 1s ease-out;
+}
 h2 {
     font-weight: 750;
     font-style: bold;
@@ -82,12 +91,11 @@ select:hover {
     transition: background-color 0.3s ease;
 }
 
-#selection-form {
+.selection-form {
     display: flex;
     /* Make the container a flexbox */
     align-items: center;
     /* Vertically center align the select boxes */
-    margin-bottom: 1vh;
 }
 
 .select-div {
@@ -110,7 +118,7 @@ select:hover {
     flex-direction: row;
     overflow-x: hidden;
     height: 90vh;
-    margin-bottom: 2em;
+    margin-bottom: 1em;
 }
 
 #dms-table {
@@ -130,12 +138,6 @@ select:hover {
 
 #dms-table-container::-webkit-scrollbar {
     display: none;
-}
-
-}
-
-#variant-view {
-    flex: 1;
 }
 
 #variant-view-table {
@@ -187,10 +189,9 @@ select:hover {
     position: sticky;
     background-color: white;
     top: 0;
-    /* Don't forget this, required for the stickiness */
 }
 
-.dms-cell:hover {
+.dms-cell-data:hover {
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
     transition: box-shadow 0.3s ease;
     z-index: 1;
@@ -203,7 +204,6 @@ select:hover {
         box-shadow 0.2s ease,
         background-color 0.2s ease,
         transform 0.2s ease;
-    /* Smooth transition for hover and unhover */
 }
 
 .dms-cell-no-data {
@@ -213,13 +213,13 @@ select:hover {
 .htmx-indicator {
     opacity: 0;
     display: none;
-    transition: opacity 250ms ease-in-out;
+    transition: opacity 1s ease-in-out;
 }
 
 .htmx-request .htmx-indicator {
     opacity: 1;
     display: inline;
-    transition: opacity 250ms ease-in-out;
+    transition: opacity 1s ease-in-out;
 }
 
 .htmx-request.htmx-indicator {

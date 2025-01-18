@@ -1,8 +1,11 @@
+use axum::middleware;
+use rand::Rng;
 use std::borrow::Cow;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
+use tower::ServiceBuilder;
 mod utils;
 use anyhow::bail;
 use axum::extract::Path;
@@ -23,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{query, query_as, query_scalar, PgPool};
 use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
-use utils::{Normalizer, PosColor};
+use utils::{set_static_cache_control, Normalizer, PosColor};
 #[derive(Clone, Debug)]
 pub struct EnvironmentVariables {
     pub database_url: Cow<'static, str>,
@@ -40,7 +43,7 @@ impl EnvironmentVariables {
             },
             port: match env::var("PORT") {
                 Ok(port) => port.parse()?,
-                _ => 8000,
+                _ => 3000,
             },
         })
     }
@@ -77,6 +80,14 @@ enum Paint {
     #[serde(alias = "statistic")]
     ZStatistic,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+enum Operation {
+    Mean,
+    Maximum,
+    Minimum,
+}
+
 impl std::fmt::Display for Paint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let output = match self {
@@ -106,14 +117,16 @@ struct TableParams {
     condition: String,
     position_filter: PositionFilter,
     paint: Paint,
-    page: i32,
+    operation: Option<Operation>,
+    threshold: Option<f64>,
+    page: Option<i32>,
 }
 
 const AMINO_ACIDS: [&str; 21] = [
     "*", "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V",
     "W", "Y",
 ];
-const PAGE_SIZE: i32 = 4200;
+const PAGE_SIZE: i32 = 100;
 fn base(content: Markup) -> Markup {
     html! {
         (DOCTYPE)
@@ -121,8 +134,7 @@ fn base(content: Markup) -> Markup {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=3, maximum-scale=1, user-scalable=no" {}
-                title { "DeepScan" }
-
+                title hx-get="/title" hx-trigger="every 10s"{  }
                 // Styles
                 link rel="stylesheet" href="assets/style.css"{}
                 link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-light.css"{}
@@ -131,10 +143,11 @@ fn base(content: Markup) -> Markup {
                 script src="assets/htmx.min.js" {}
                 script src="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-plugin.js"{}
                 script src="//unpkg.com/alpinejs" defer {}
+                script src="https://unpkg.com/htmx-ext-preload@2.1.0/preload.js"{}
                 meta name="htmx-config" content="{\"responseHandling\": [{\"code\":\".*\", \"swap\": true}]}"{}
 
             }
-            body{
+            body hx-ext="preload"{
 
                 (content)
             }
@@ -144,7 +157,11 @@ fn base(content: Markup) -> Markup {
 #[debug_handler]
 async fn main_content() -> Markup {
     base(html! {
-        h1 id = "page-title" { span id="page-title-start"{"// "} span id="page-title-end"{"DEEPSCAN"} }
+        h1 id = "page-title" {
+            span id="page-title-start"{"// "}
+            span hx-get="/title" hx-trigger="mouseover" hx-swap="innerHTML swap:1s settle:1s" hx-indicator="#aka" id="page-title-end" {"DEEPSCAN"}
+
+        }
         div id="select-and-upload"{
             form
                 hx-post="/upload"
@@ -153,13 +170,11 @@ async fn main_content() -> Markup {
                 hx-indicator="#upload-indicator"
                 hx-target="this"
                 {
-                p id="upload-indicator" class="htmx-indicator" {"Uploading file..."}
-                input type="file" name="file" {}
-                button{ "Upload" }
+                 (upload_file_component_with_message(""))
             }
-            form id="selection-form"
+            form class="selection-form"
                 hx-get="/proteins"
-                hx-trigger="load delay:0.5s"
+                hx-trigger="load"
                 {
                 }
         }
@@ -176,6 +191,7 @@ async fn main_content() -> Markup {
                         }
                     }
                     tbody id="dms-table-body"{}
+
                 }
             }
             script src="assets/viewer.js"{}
@@ -193,6 +209,7 @@ async fn main_content() -> Markup {
                     }
                     div id="variant-view-body"{}
                 }
+                p id="loading-cell-indicator" class="htmx-indicator" {"Loading..."}
             }
 
 
@@ -230,102 +247,126 @@ async fn get_conditions(
         _ => "7s15",
     };
     match rows {
-        Ok(conditions) => (
-            StatusCode::OK,
-            [("HX-Trigger", "load-condition")],
-            html! {
+        Ok(conditions) => {
+            let mut res = (html! {
                 @for condition in &conditions{
                     option value=(condition.condition) { (condition.condition) }
                 }
                 script {
                     (PreEscaped(format!("refresh_and_load_pdb_into_viewer('{}')",pdb_id)))
                 }
-            },
-        ),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [("", "")],
-            html! {
-                p { "Error fetching conditions: " (err) }
-            },
-        ),
+            })
+            .into_response();
+            res.headers_mut()
+                .insert("Cache-Control", HeaderValue::from_static("max-age=10000"));
+            res.headers_mut()
+                .insert("HX-Trigger", HeaderValue::from_static("load-condition"));
+            return res;
+        }
+        Err(err) => {
+            ((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                html! {
+                    p { "Error fetching conditions: " (err) }
+                },
+            )
+                .into_response())
+        }
     }
 }
 
-async fn get_proteins(State(state): State<AppState>) -> Markup {
+async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
     info!("getting proteins");
     let rows = sqlx::query!("SELECT DISTINCT id, name FROM protein;")
         .fetch_all(&state.pool)
         .await;
     match rows {
         Ok(proteins) => {
-            html! {
-            #protein-select-div .select-div{
-                label for="protein" id="protein-select-label"{"Protein"}
-                select id="protein-select" name="protein"
-                    hx-get="/conditions"
-                    hx-include="this"
-                    hx-target="#condition-select"
-                    hx-trigger="change,load delay:0.1s"
+            let mut res = (html! {
+            form class="selection-form"{
+                #protein-select-div .select-div{
+                    label for="protein" id="protein-select-label"{"Protein"}
+                    select id="protein-select" name="protein"
+                        hx-get="/conditions"
+                        hx-include="this"
+                        hx-target="#condition-select"
+                        hx-trigger="change,load"
+
+                        {
+                            @for protein in &proteins{
+                                option value=(protein.name) { (protein.name) }
+                            }
+                        }
+                }
+            }
+            form
+                hx-get="/variants?page=1"
+                hx-indicator="#loading"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                hx-target="#dms-table-body"
+                hx-trigger="input throttle:0.15s,load-condition from:body delay:0.5s"
+            {
+                div class="selection-form"
+                    hx-get="/threshold"
+                    hx-trigger="change, load-condition from:body delay:0.25s"
+                    hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
+                    hx-target="#threshold-slider"
+                {
+                    #condition-select-div .select-div{
+                        label for="condition" id="condition-select-label"{"Condition"}
+                        select id="condition-select" name="condition"
+                        {}
+                    }
+
+                    #position-filter-select-div .select-div{
+                        label id="label-position-filter-select" for="position_filter"{"Select"}
+                        select id="position-filter-select" name="position_filter"
                     {
-                        @for protein in &proteins{
-                            option value=(protein.name) { (protein.name) }
+                            option value=("NoOrder") { ("No Order") }
+                            option value=("MostSignificantPValue") { ("Most significant p value") }
+                            option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
+                            option value=("LargestZStatistic") { ("Largest z statistic") }
                         }
                     }
+
+                    #paint-by-filter-select-div .select-div{
+                        label id="label-paint-by-select" for="paint"{"Paint By"}
+                        select id="paint-by-select" name="paint"
+
+                        {
+                            option value=("Log2FoldChange") { ("log2 Fold Change") }
+                            option value=("PValue") { ("p value") }
+                            option value=("ZStatistic") { ("z statistic") }
+                        }
+                    }
+                    #threshold
+                        name="threshold"
+                        x-data="{ threshold_value: 0 }"
+                        {
+                        #threshold-slider .select-div{
+                            label for="threshold"{"Threshold"}
+
+                        }
+                        div  x-text="threshold_value"{}
+                    }
+                }
             }
 
-            #condition-select-div .select-div{
-            label for="condition" id="condition-select-label"{"Condition"}
-            select id="condition-select" name="condition"
-                hx-get="/variants?page=1"
-                hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
-                hx-target="#dms-table-body"
-                hx-trigger="change,load-condition from:body delay:0.5s "
-                {}
-            }
 
-            #position-filter-select-div .select-div{
-            label id="label-position-filter-select" for="position_filter"{"Select"}
-            select id="position-filter-select" name="position_filter"
-                hx-get="/variants?page=1"
-                hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition'],[name='paint']"
-                hx-target="#dms-table-body"
-                hx-trigger="change,load-condition from:body delay:0.5s "
-            {
-                option value=("NoOrder") { ("No Order") }
-                option value=("MostSignificantPValue") { ("Most significant p value") }
-                option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
-                option value=("LargestZStatistic") { ("Largest z statistic") }
-            }
-            }
-
-            #paint-by-filter-select-div .select-div{
-            label id="label-paint-by-select" for="paint"{"Paint By"}
-            select id="paint-by-select" name="paint"
-                hx-get="/variants?page=1"
-                hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter']"
-                hx-target="#dms-table-body"
-                hx-trigger="change,load-condition from:body delay:0.5s "
-            {
-                option value=("Log2FoldChange") { ("log2 Fold Change") }
-                option value=("PValue") { ("p value") }
-                option value=("ZStatistic") { ("z statistic") }
-            }}
 
 
             div id="loading" class="htmx-indicator"{"Loading..."}
 
-            }
+            }).into_response();
+            res.headers_mut()
+                .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
+            return res;
         }
 
-        Err(err) => {
-            html! {
-                p { "Error fetching proteins: " (err) }
-            }
-        }
+        Err(err) => (html! {
+            p { "Error fetching proteins: " (err) }
+        })
+        .into_response(),
     }
 }
 
@@ -339,44 +380,115 @@ async fn get_variants(
         page,
         ref position_filter,
         ref paint,
+        ref operation,
+        ref threshold,
     } = params;
+    let page = page.unwrap_or(1);
     info!(
         "Getting variant for protein = {}, condition = {} and page = {} and order={:?}",
         protein, condition, page, position_filter
     );
-    let offset = (page - 1) * PAGE_SIZE;
-    info!("offset: {offset}");
+    let page_start = (page - 1) * PAGE_SIZE + 1;
+    let mut page_end = page_start + PAGE_SIZE;
+    match sqlx::query!(
+        r#"
+        SELECT max(pos) as maximum FROM variant
+        JOIN protein ON variant.protein_id = protein.id
+        WHERE protein.name = $1
+        AND variant.condition = $2
+        "#,
+        protein,
+        condition
+    )
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(record) => match record.maximum {
+            Some(maximum) => {
+                if page_end >= maximum {
+                    page_end = maximum;
+                }
+            }
+            None => {
+                warn!("Could not find maximum")
+            }
+        },
+        Err(err) => {
+            warn!("Could not find maximum");
+        }
+    }
     let variants: Vec<Variant> = match position_filter {
-        PositionFilter::NoOrder => sqlx::query_as!(
-            Variant,
-            r#"SELECT
-                        variant.id,
-                        variant.chunk,
-                        variant.pos,
-                        variant.p_value,
-                        variant.created_on,
-                        variant.log2_fold_change,
-                        variant.log2_std_error,
-                        variant.statistic,
-                        variant.condition,
-                        variant.aa,
-                        variant.version,
-                        protein.name as protein
-                    FROM variant
-                    JOIN protein ON variant.protein_id = protein.id
-                    WHERE protein.name = $1
-                    AND variant.condition = $2
-                    ORDER BY variant.pos, variant.aa
-                    LIMIT $3 OFFSET $4
-                    "#,
-            protein,
-            condition,
-            PAGE_SIZE as i64,
-            offset as i64
-        )
-        .fetch_all(&state.pool)
-        .await
-        .unwrap(),
+        PositionFilter::NoOrder => match threshold {
+            Some(threshold) => sqlx::query_as!(
+                Variant,
+                r#"SELECT
+                    variant.id,
+                    variant.chunk,
+                    variant.pos,
+                    variant.p_value,
+                    variant.created_on,
+                    variant.log2_fold_change,
+                    variant.log2_std_error,
+                    variant.statistic,
+                    variant.condition,
+                    variant.aa,
+                    variant.version,
+                    protein.name as protein
+                FROM variant
+                JOIN protein ON variant.protein_id = protein.id
+                WHERE protein.name = $1
+                AND variant.condition = $2
+                AND case $5
+                    when 'p_value' then variant.p_value < $6
+                    when 'log2_fold_change' then variant.log2_fold_change < $6
+                    when 'statistic' then variant.statistic < $6
+                end
+                AND variant.pos >= $3
+                AND variant.pos <= $4
+                ORDER BY variant.pos, variant.aa
+                "#,
+                protein,
+                condition,
+                page_start,
+                page_end,
+                paint.to_string(),
+                *threshold
+            )
+            .fetch_all(&state.pool)
+            .await
+            .unwrap(),
+            None => sqlx::query_as!(
+                Variant,
+                r#"SELECT
+                                variant.id,
+                                variant.chunk,
+                                variant.pos,
+                                variant.p_value,
+                                variant.created_on,
+                                variant.log2_fold_change,
+                                variant.log2_std_error,
+                                variant.statistic,
+                                variant.condition,
+                                variant.aa,
+                                variant.version,
+                                protein.name as protein
+                            FROM variant
+                            JOIN protein ON variant.protein_id = protein.id
+                            WHERE protein.name = $1
+                            AND variant.condition = $2
+                            AND variant.pos >= $3
+                            AND variant.pos <= $4
+                            ORDER BY variant.pos, variant.aa
+                            "#,
+                protein,
+                condition,
+                page_start,
+                page_end
+            )
+            .fetch_all(&state.pool)
+            .await
+            .unwrap(),
+        },
         _ => sqlx::query_as!(
             Variant,
             r#"
@@ -424,12 +536,13 @@ async fn get_variants(
                     protein
                 FROM ranked_variants
                 WHERE rn = 1
-                LIMIT $3 OFFSET $4
+                AND pos >= $3
+                AND pos <= $4;
                 "#,
             protein,
             condition,
-            PAGE_SIZE as i64,
-            offset as i64,
+            page_start,
+            page_end,
             position_filter.to_string()
         )
         .fetch_all(&state.pool)
@@ -437,17 +550,14 @@ async fn get_variants(
         .unwrap(),
     };
     if variants.is_empty() {
-        return (StatusCode::NOT_FOUND, html!("No variants found")).into_response();
+        info!("no variants found... perhaps a missing chunk? or a really low threshold")
     }
-    if let Some(max_pos) = &variants.iter().map(|variant| variant.pos).max() {
-        if let Some(min_pos) = &variants.iter().map(|variant| variant.pos).min() {
-            let query_length: i32 = (variants.len() / &AMINO_ACIDS.len()) as i32;
-            info!("{}", query_length);
-            let positions: Vec<i32> = (*min_pos..=*max_pos).collect();
-            debug!("{:?}", &positions);
-
-            match sqlx::query_scalar!(
-                r#"
+    let query_length: usize = variants.len();
+    info!("{}", query_length);
+    let positions: Vec<i32> = (page_start..page_end).collect();
+    debug!("{:?}", &positions);
+    match sqlx::query_scalar!(
+        r#"
                 select
                     max(abs(
                         case $3
@@ -459,24 +569,24 @@ async fn get_variants(
                 from variant
                 join protein on variant.protein_id = protein.id
                 where protein.name = $1 and variant.condition = $2;"#,
-                protein,
-                condition,
-                paint.to_string()
-            )
-            .fetch_one(&state.pool)
-            .await
-            {
-                Ok(max_abs_option) => match max_abs_option {
-                    Some(max_abs) => {
-                        let normalizer = utils::Normalizer { max_abs };
-                        let pos_color_pairs: Vec<PosColor> = variants
-                            .iter()
-                            .map(|variant| PosColor {
-                                pos: variant.pos,
-                                color: normalizer.get_color_hex(variant.log2_fold_change),
-                            })
-                            .collect();
-                        let mut res = (
+        protein,
+        condition,
+        paint.to_string()
+    )
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(max_abs_option) => match max_abs_option {
+            Some(max_abs) => {
+                let normalizer = utils::Normalizer { max_abs };
+                let pos_color_pairs: Vec<PosColor> = variants
+                    .iter()
+                    .map(|variant| PosColor {
+                        pos: variant.pos,
+                        color: normalizer.get_color_hex(variant.log2_fold_change),
+                    })
+                    .collect();
+                let mut res = (
                             StatusCode::OK,
 
                             html!(
@@ -484,7 +594,7 @@ async fn get_variants(
                                     tr{
                                         th scope="row"{(pos)}
                                         @for amino_acid in &AMINO_ACIDS{
-                                            @let end_of_row = (query_length!=0 && pos == &(max_pos - 15)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                            @let end_of_row = (pos == &(page_end - 15)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
                                             (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
                                         }
                                     }
@@ -494,34 +604,24 @@ async fn get_variants(
 
                             )
                             ).into_response();
-                        res.headers_mut()
-                            .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
-                        return res;
-                    }
-                    None => {
-                        warn!("error");
-
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            html!(div{"max_abs not found"}),
-                        )
-                            .into_response()
-                    }
-                },
-                Err(err) => {
-                    warn!("error");
-                    (StatusCode::INTERNAL_SERVER_ERROR, html!(div{(err)})).into_response()
-                }
+                res.headers_mut()
+                    .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
+                return res;
             }
-        } else {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                html!("couldn't find min pos"),
-            )
-                .into_response();
+            None => {
+                warn!("error");
+
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    html!(div{"max_abs not found"}),
+                )
+                    .into_response()
+            }
+        },
+        Err(err) => {
+            warn!("error");
+            (StatusCode::INTERNAL_SERVER_ERROR, html!(div{(err)})).into_response()
         }
-    } else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, html!()).into_response();
     }
 }
 
@@ -583,7 +683,7 @@ fn format_variant_cell(
                     td
                     style=(format!("background-color: {}",color))
                     id=(format!("{pos}{amino_acid}"))
-                    class="dms-cell"
+                    class="dms-cell-data dms-cell"
                     title=(format!("log2FC: {:.3}, {}{}",log2_fc,pos,amino_acid))
                     hx-get=(format!("variants/{}",variant_id))
                     hx-vals=(format!("{{\"color\":\"{}\"}}",color))
@@ -597,7 +697,7 @@ fn format_variant_cell(
     return html!(
         td
         id=(format!("{pos}{amino_acid}"))
-        class="dms-cell-no-data"
+        class="dms-cell dms-cell-no-data"
         title=(format!("log2FC: {:.3}, {}{}","N/A",pos,amino_acid)){});
 }
 
@@ -607,14 +707,18 @@ fn format_invisible_lazy_load_cell(params: &TableParams) -> Markup {
         id="invisible-lazy-load-cell"
         hx-trigger="intersect once"
         hx-target="#dms-table-body"
-        hx-get=(format!("/variants?page={}&protein={}&condition={}&position_filter={}&paint={}",params.page+1,params.protein,params.condition,params.position_filter,params.paint))
+        hx-indicator="#loading-cell-indicator"
+        hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+        hx-get=(format!("/variants?page={}",params.page.unwrap_or(1)+1))
         hx-swap="beforeend"
         {});
 }
 
 fn upload_file_component_with_message(message: &str) -> Markup {
     info!("IN");
-    html! { div id="upload-file-message" {(message)}
+    html! {
+        div id="upload-file-message" {(message)}
+        p id="upload-indicator" class="htmx-indicator" {"Uploading file..."}
         input type="file" name="file" {}
         button{ "Upload" }
     }
@@ -648,8 +752,10 @@ async fn upload_file(State(state): State<AppState>, mut multipart: Multipart) ->
                             errors.len()
                         ))
                         .into_response();
-                        res.headers_mut()
-                            .insert("HX-Trigger", HeaderValue::from_static("load-condition"));
+                        res.headers_mut().insert(
+                            "HX-Trigger-After-Settle",
+                            HeaderValue::from_static("load-condition"),
+                        );
                         res
                     }
                     Err(err) => (
@@ -826,6 +932,86 @@ async fn insert(pool: &PgPool, variants: &[Variant], protein: &str) -> Result<u6
     Ok(rows_affected)
 }
 
+async fn get_threshold_for_paint_by(
+    State(state): State<AppState>,
+    Query(params): Query<TableParams>,
+) -> impl IntoResponse {
+    let TableParams {
+        ref protein,
+        ref condition,
+        page,
+        position_filter: _,
+        ref paint,
+        operation: _,
+        threshold,
+    } = params;
+    let pool = &state.pool;
+    let rows = sqlx::query!(
+        r#"
+            select
+                max(
+                    case $3
+                        when 'p_value' then variant.p_value
+                        when 'log2_fold_change' then variant.log2_fold_change
+                        when 'statistic' then variant.statistic
+                    end
+                ) as "max_value!",
+                min(
+                    case $3
+                        when 'p_value' then variant.p_value
+                        when 'log2_fold_change' then variant.log2_fold_change
+                        when 'statistic' then variant.statistic
+                    end
+                ) as "min_value!"
+            from variant
+            join protein on variant.protein_id = protein.id
+            where protein.name = $1 and variant.condition = $2;
+            "#,
+        protein,
+        condition,
+        paint.to_string()
+    )
+    .fetch_one(pool)
+    .await;
+    match rows {
+        Ok(row) => {
+            let step = (row.max_value - row.min_value) / 24.0;
+            return (html!(
+                label for="threshold"{"Threshold"}
+                input
+                    type="range"
+                    id="threshold"
+                    name="threshold"
+                    min=(format!("{:.3}",row.min_value))
+                    max=(format!("{:.3}",row.max_value))
+                    step=(format!("{:.3}",step))
+                    x-model="threshold_value"
+
+                    {}
+
+
+            ))
+            .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                html!(div{(format!("no max or min found, {}",e))}),
+            )
+                .into_response();
+        }
+    }
+}
+
+async fn get_title() -> impl IntoResponse {
+    let titles = vec!["DeepScan", "A Scanner Deeply", "DMV"];
+    let mut rng = rand::thread_rng();
+
+    // Generate a random number between 1 and 100
+    let random_number: usize = rng.gen_range(0..titles.len());
+    return (html!((titles.get(random_number).unwrap().to_uppercase()))).into_response();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -833,7 +1019,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::from_env().await?;
     let listener =
         TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, state.env.port))).await?;
-
+    info!("loaded");
     let app = Router::new()
         .route("/", get(main_content))
         .route("/variants", get(get_variants))
@@ -841,9 +1027,20 @@ async fn main() -> anyhow::Result<()> {
         .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
         .route("/variants/:id", get(get_variant_by_id))
+        .route("/threshold", get(get_threshold_for_paint_by))
+        .route("/title", get(get_title))
         .layer(DefaultBodyLimit::max(1024 * 1024 * 100000))
         .with_state(state)
-        .nest_service("/assets", ServeDir::new("assets"));
+        .nest_service(
+            "/assets",
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(set_static_cache_control))
+                .service(
+                    ServeDir::new("assets")
+                        .precompressed_br()
+                        .precompressed_gzip(),
+                ),
+        );
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();

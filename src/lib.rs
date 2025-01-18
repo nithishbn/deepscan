@@ -1,9 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    prelude::FromRow,
-    types::chrono::{DateTime, Utc},
-};
+use sqlx::{prelude::FromRow, types::chrono::Utc};
 
 #[derive(Debug, FromRow, Serialize, Deserialize)]
 pub struct Variant {

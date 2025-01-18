@@ -1,4 +1,11 @@
+use axum::{
+    extract::Request,
+    http::{header, HeaderValue},
+    middleware::Next,
+    response::Response,
+};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 pub(crate) struct Normalizer {
     pub(crate) max_abs: f64,
@@ -25,6 +32,7 @@ impl Normalizer {
     // Normalize a single value and return the Hex color
     pub fn get_color_hex(&self, value: f64) -> String {
         if self.max_abs == 0.0 {
+            info!("max_abs is 0");
             return "#FFFFFF".to_string(); // Handle case where max_abs is 0
         }
 
@@ -43,4 +51,13 @@ impl Normalizer {
 pub struct PosColor {
     pub pos: i32,
     pub color: String, // Assuming `color` is a String or any other type.
+}
+
+pub async fn set_static_cache_control(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+    response
 }

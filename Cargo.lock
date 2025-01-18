@@ -392,6 +392,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "maud",
+ "rand",
  "serde",
  "serde_json",
  "sqlx",
