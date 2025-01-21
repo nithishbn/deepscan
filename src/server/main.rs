@@ -1,13 +1,11 @@
+use axum::http::header;
 use axum::middleware;
 use rand::Rng;
-use std::borrow::Cow;
-use std::env;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
-mod utils;
-use anyhow::bail;
+pub mod utils;
 use axum::extract::Path;
 use axum::{
     body::Bytes,
@@ -18,115 +16,18 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use csv::Error;
-use dms_viewer::Variant;
+use dms_viewer::{
+    AppState, Normalizer, Paint, PosColor, PositionFilter, TableParams, Variant, VariantColor,
+    AMINO_ACIDS, PAGE_SIZE,
+};
 use maud::{html, Markup, PreEscaped, DOCTYPE};
-use serde::{Deserialize, Serialize};
-use sqlx::{query, query_as, query_scalar, PgPool};
+use sqlx::{query_as, query_scalar, PgPool};
 use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
-use utils::{set_static_cache_control, Normalizer, PosColor};
-#[derive(Clone, Debug)]
-pub struct EnvironmentVariables {
-    pub database_url: Cow<'static, str>,
-    pub port: u16,
-}
+use utils::set_static_cache_control;
 
-impl EnvironmentVariables {
-    pub fn from_env() -> anyhow::Result<Self> {
-        dotenvy::dotenv()?;
-        Ok(Self {
-            database_url: match env::var("DATABASE_URL") {
-                Ok(url) => url.into(),
-                Err(err) => bail!("missing DATABASE_URL: {err}"),
-            },
-            port: match env::var("PORT") {
-                Ok(port) => port.parse()?,
-                _ => 3000,
-            },
-        })
-    }
-}
-
-#[derive(Clone)]
-struct AppState {
-    pool: PgPool,
-    env: EnvironmentVariables,
-}
-impl AppState {
-    pub async fn from_env() -> anyhow::Result<Self> {
-        let env = EnvironmentVariables::from_env()?;
-        Ok(Self {
-            pool: PgPool::connect(&env.database_url).await?,
-            env: EnvironmentVariables::from_env()?,
-        })
-    }
-}
-#[derive(Deserialize, Debug)]
-enum PositionFilter {
-    MostSignificantPValue,
-    LargestLog2FoldChange,
-    LargestZStatistic,
-    NoOrder,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Paint {
-    #[serde(alias = "p_value")]
-    PValue,
-    #[serde(alias = "log2_fold_change")]
-    Log2FoldChange,
-    #[serde(alias = "statistic")]
-    ZStatistic,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum Operation {
-    Mean,
-    Maximum,
-    Minimum,
-}
-
-impl std::fmt::Display for Paint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Paint::Log2FoldChange => "log2_fold_change",
-            Paint::PValue => "p_value",
-            Paint::ZStatistic => "statistic",
-        };
-        write!(f, "{}", output)
-    }
-}
-
-impl std::fmt::Display for PositionFilter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            PositionFilter::MostSignificantPValue => "MostSignificantPValue",
-            PositionFilter::LargestLog2FoldChange => "LargestLog2FoldChange",
-            PositionFilter::LargestZStatistic => "LargestZStatistic",
-            PositionFilter::NoOrder => "NoOrder",
-        };
-        write!(f, "{}", output)
-    }
-}
-
-#[derive(Deserialize)]
-struct TableParams {
-    protein: String,
-    condition: String,
-    position_filter: PositionFilter,
-    paint: Paint,
-    operation: Option<Operation>,
-    threshold: Option<f64>,
-    page: Option<i32>,
-}
-
-const AMINO_ACIDS: [&str; 21] = [
-    "*", "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V",
-    "W", "Y",
-];
-const PAGE_SIZE: i32 = 100;
 fn base(content: Markup) -> Markup {
     html! {
         (DOCTYPE)
@@ -134,20 +35,23 @@ fn base(content: Markup) -> Markup {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=3, maximum-scale=1, user-scalable=no" {}
-                title hx-get="/title" hx-trigger="every 10s"{  }
+                title hx-get="/title" hx-trigger="load"{  }
+
                 // Styles
                 link rel="stylesheet" href="assets/style.css"{}
                 link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-light.css"{}
 
-                // Htmx + Alpine
+                // Htmx + PDBe Molstar + Alpine
                 script src="assets/htmx.min.js" {}
                 script src="https://cdn.jsdelivr.net/npm/pdbe-molstar@3.3.0/build/pdbe-molstar-plugin.js"{}
                 script src="//unpkg.com/alpinejs" defer {}
-                script src="https://unpkg.com/htmx-ext-preload@2.1.0/preload.js"{}
+                script src="https://cdn.jsdelivr.net/npm/d3@7"{}
+                script src="assets/scatter.js"{}
+
                 meta name="htmx-config" content="{\"responseHandling\": [{\"code\":\".*\", \"swap\": true}]}"{}
 
             }
-            body hx-ext="preload"{
+            body{
 
                 (content)
             }
@@ -156,10 +60,10 @@ fn base(content: Markup) -> Markup {
 }
 #[debug_handler]
 async fn main_content() -> Markup {
-    base(html! {
+    let var_name = html! {
         h1 id = "page-title" {
             span id="page-title-start"{"// "}
-            span hx-get="/title" hx-trigger="mouseover" hx-swap="innerHTML swap:1s settle:1s" hx-indicator="#aka" id="page-title-end" {"DEEPSCAN"}
+            span hx-get="/title" hx-trigger="mouseover" hx-swap="innerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
 
         }
         div id="select-and-upload"{
@@ -172,27 +76,26 @@ async fn main_content() -> Markup {
                 {
                  (upload_file_component_with_message(""))
             }
+            button
+                hx-get="/heatmap"
+                hx-target="#dms-table-container"
+                hx-trigger="click"
+                {"View Heatmap"}
+            button
+                hx-get="/scatter"
+                hx-target="#dms-table-container"
+                hx-trigger="click"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                {"View Scatterplot"}
+
             form class="selection-form"
                 hx-get="/proteins"
                 hx-trigger="load"
                 {
                 }
         }
-
         div id="full-view"{
-            div id="dms-table-container"{
-                table id="dms-table"{
-                    thead{
-                        tr{
-                            th{" "}
-                            @for amino_acid in &AMINO_ACIDS{
-                                th { (amino_acid)}
-                            }
-                        }
-                    }
-                    tbody id="dms-table-body"{}
-
-                }
+            div id="dms-table-container" hx-get="/heatmap" hx-trigger="load"{
             }
             script src="assets/viewer.js"{}
             div id="variant-view"{
@@ -211,16 +114,43 @@ async fn main_content() -> Markup {
                 }
                 p id="loading-cell-indicator" class="htmx-indicator" {"Loading..."}
             }
-
-
             div id="structure"{}
-
-
-
-
         }
 
-    })
+    };
+    base(var_name)
+}
+
+async fn get_heatmap() -> impl IntoResponse {
+    (html!(
+        table id="dms-table"
+
+            {
+        thead{
+            tr{
+                th{" "}
+                @for amino_acid in &AMINO_ACIDS{
+                    th { (amino_acid)}
+                }
+            }
+        }
+        tbody id="dms-table-body"
+            hx-get="/variants"
+            hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+            hx-trigger="load"
+        {
+            @for pos in 1..100{
+                tr{
+                    @for amino_acid in &AMINO_ACIDS{
+                        (format_variant_cell(None, &pos, amino_acid, None, None))
+                    }
+                }
+
+            }
+
+        }
+    }))
+    .into_response()
 }
 
 async fn get_conditions(
@@ -257,8 +187,7 @@ async fn get_conditions(
                 }
             })
             .into_response();
-            res.headers_mut()
-                .insert("Cache-Control", HeaderValue::from_static("max-age=10000"));
+
             res.headers_mut()
                 .insert("HX-Trigger", HeaderValue::from_static("load-condition"));
             return res;
@@ -347,7 +276,7 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
                             label for="threshold"{"Threshold"}
 
                         }
-                        div  x-text="threshold_value"{}
+
                     }
                 }
             }
@@ -358,8 +287,10 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
             div id="loading" class="htmx-indicator"{"Loading..."}
 
             }).into_response();
-            res.headers_mut()
-                .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
+            res.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("max-age=100"),
+            );
             return res;
         }
 
@@ -556,6 +487,48 @@ async fn get_variants(
     info!("{}", query_length);
     let positions: Vec<i32> = (page_start..page_end).collect();
     debug!("{:?}", &positions);
+    if let Some(max_abs) = get_max_absolute_value(protein, condition, *paint, &state.pool).await {
+        let normalizer = Normalizer { max_abs };
+        let pos_color_pairs: Vec<PosColor> = variants
+            .iter()
+            .map(|variant| PosColor {
+                pos: variant.pos,
+                color: normalizer.get_color_hex(variant.log2_fold_change),
+            })
+            .collect();
+        let mut res = (
+                    StatusCode::OK,
+                    html!(
+                        @for pos in &positions{
+                            tr{
+                                th scope="row"{(pos)}
+                                @for amino_acid in &AMINO_ACIDS{
+                                    @let end_of_row = (pos == &(page_end - 15)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                    (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
+                                }
+                            }
+                        }
+                        script {(PreEscaped(format!("colorVariants({})",serde_json::json!(pos_color_pairs))))}
+
+
+                    )
+                    ).into_response();
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("max-age=100"),
+        );
+        return res;
+    } else {
+        warn!("error");
+        (StatusCode::INTERNAL_SERVER_ERROR, html!()).into_response()
+    }
+}
+async fn get_max_absolute_value(
+    protein: &str,
+    condition: &str,
+    paint: Paint,
+    pool: &PgPool,
+) -> Option<f64> {
     match sqlx::query_scalar!(
         r#"
                 select
@@ -573,58 +546,13 @@ async fn get_variants(
         condition,
         paint.to_string()
     )
-    .fetch_one(&state.pool)
+    .fetch_one(pool)
     .await
     {
-        Ok(max_abs_option) => match max_abs_option {
-            Some(max_abs) => {
-                let normalizer = utils::Normalizer { max_abs };
-                let pos_color_pairs: Vec<PosColor> = variants
-                    .iter()
-                    .map(|variant| PosColor {
-                        pos: variant.pos,
-                        color: normalizer.get_color_hex(variant.log2_fold_change),
-                    })
-                    .collect();
-                let mut res = (
-                            StatusCode::OK,
-
-                            html!(
-                                @for pos in &positions{
-                                    tr{
-                                        th scope="row"{(pos)}
-                                        @for amino_acid in &AMINO_ACIDS{
-                                            @let end_of_row = (pos == &(page_end - 15)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
-                                            (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
-                                        }
-                                    }
-                                }
-                                script {(PreEscaped(format!("colorVariants({})",serde_json::json!(pos_color_pairs))))}
-
-
-                            )
-                            ).into_response();
-                res.headers_mut()
-                    .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
-                return res;
-            }
-            None => {
-                warn!("error");
-
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    html!(div{"max_abs not found"}),
-                )
-                    .into_response()
-            }
-        },
-        Err(err) => {
-            warn!("error");
-            (StatusCode::INTERNAL_SERVER_ERROR, html!(div{(err)})).into_response()
-        }
+        Ok(max_abs_option) => max_abs_option,
+        Err(_) => None,
     }
 }
-
 fn get_variant_cell(
     variants: &[Variant],
     amino_acid: &str,
@@ -756,6 +684,7 @@ async fn upload_file(State(state): State<AppState>, mut multipart: Multipart) ->
                             "HX-Trigger-After-Settle",
                             HeaderValue::from_static("load-condition"),
                         );
+
                         res
                     }
                     Err(err) => (
@@ -853,8 +782,10 @@ async fn get_variant_by_id(
             script {(PreEscaped(format!("focusVariant({})",variant.pos)))}
         )
         .into_response();
-        res.headers_mut()
-            .insert("Cache-Control", HeaderValue::from_static("max-age=100"));
+        res.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("max-age=100"),
+        );
         return res;
     } else {
         warn!("Variant not found!");
@@ -939,67 +870,71 @@ async fn get_threshold_for_paint_by(
     let TableParams {
         ref protein,
         ref condition,
-        page,
-        position_filter: _,
+        page: _,
+        position_filter,
         ref paint,
         operation: _,
-        threshold,
+        threshold: _,
     } = params;
     let pool = &state.pool;
-    let rows = sqlx::query!(
-        r#"
-            select
-                max(
-                    case $3
-                        when 'p_value' then variant.p_value
-                        when 'log2_fold_change' then variant.log2_fold_change
-                        when 'statistic' then variant.statistic
-                    end
-                ) as "max_value!",
-                min(
-                    case $3
-                        when 'p_value' then variant.p_value
-                        when 'log2_fold_change' then variant.log2_fold_change
-                        when 'statistic' then variant.statistic
-                    end
-                ) as "min_value!"
-            from variant
-            join protein on variant.protein_id = protein.id
-            where protein.name = $1 and variant.condition = $2;
-            "#,
-        protein,
-        condition,
-        paint.to_string()
-    )
-    .fetch_one(pool)
-    .await;
-    match rows {
-        Ok(row) => {
-            let step = (row.max_value - row.min_value) / 24.0;
-            return (html!(
-                label for="threshold"{"Threshold"}
-                input
-                    type="range"
-                    id="threshold"
-                    name="threshold"
-                    min=(format!("{:.3}",row.min_value))
-                    max=(format!("{:.3}",row.max_value))
-                    step=(format!("{:.3}",step))
-                    x-model="threshold_value"
-
-                    {}
-
-
-            ))
-            .into_response();
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                html!(div{(format!("no max or min found, {}",e))}),
+    match position_filter {
+        PositionFilter::NoOrder => {
+            let rows = sqlx::query!(
+                r#"
+                select
+                    max(
+                        case $3
+                            when 'p_value' then variant.p_value
+                            when 'log2_fold_change' then variant.log2_fold_change
+                            when 'statistic' then variant.statistic
+                        end
+                    ) as "max_value!",
+                    min(
+                        case $3
+                            when 'p_value' then variant.p_value
+                            when 'log2_fold_change' then variant.log2_fold_change
+                            when 'statistic' then variant.statistic
+                        end
+                    ) as "min_value!"
+                from variant
+                join protein on variant.protein_id = protein.id
+                where protein.name = $1 and variant.condition = $2;
+                "#,
+                protein,
+                condition,
+                paint.to_string()
             )
-                .into_response();
+            .fetch_one(pool)
+            .await;
+            match rows {
+                Ok(row) => {
+                    let step = (row.max_value - row.min_value) / 50.0;
+                    return (html!(
+                        label for="threshold"{"Threshold"}
+                        input
+                            type="range"
+                            id="threshold"
+                            name="threshold"
+                            min=(format!("{:.3}",row.min_value))
+                            max=(format!("{:.3}",row.max_value))
+                            step=(format!("{:.3}",step))
+                            x-model="threshold_value"
+                            {}
+                            div x-text="threshold_value"{}
+
+                    ))
+                    .into_response();
+                }
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        html!(div{(format!("no max or min found, {}",e))}),
+                    )
+                        .into_response();
+                }
+            }
         }
+        _ => (html!()).into_response(),
     }
 }
 
@@ -1007,9 +942,75 @@ async fn get_title() -> impl IntoResponse {
     let titles = vec!["DeepScan", "A Scanner Deeply", "DMV"];
     let mut rng = rand::thread_rng();
 
-    // Generate a random number between 1 and 100
     let random_number: usize = rng.gen_range(0..titles.len());
     return (html!((titles.get(random_number).unwrap().to_uppercase()))).into_response();
+}
+
+async fn get_scatter_plot(
+    State(state): State<AppState>,
+    Query(params): Query<TableParams>,
+) -> impl IntoResponse {
+    let TableParams {
+        ref protein,
+        ref condition,
+        page: _,
+        position_filter,
+        ref paint,
+        operation: _,
+        threshold: _,
+    } = params;
+    let pool = &state.pool;
+    let variants = sqlx::query_as!(
+        Variant,
+        r#"SELECT
+                        variant.id,
+                        variant.chunk,
+                        variant.pos,
+                        variant.p_value,
+                        variant.created_on,
+                        variant.log2_fold_change,
+                        variant.log2_std_error,
+                        variant.statistic,
+                        variant.condition,
+                        variant.aa,
+                        variant.version,
+                        protein.name as protein
+                    FROM variant
+                    JOIN protein ON variant.protein_id = protein.id
+                    WHERE protein.name = $1
+                    AND variant.condition = $2
+                    ORDER BY variant.pos, variant.aa
+                    "#,
+        protein,
+        condition,
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    if let Some(max_abs) = get_max_absolute_value(protein, condition, *paint, pool).await {
+        let normalizer = Normalizer { max_abs };
+        let pos_color_pairs: Vec<VariantColor> = variants
+            .iter()
+            .map(|variant| VariantColor {
+                pos: variant.pos,
+                color: normalizer.get_color_hex(variant.log2_fold_change),
+                aa: variant.aa.clone(),
+                log2_fold_change: variant.log2_fold_change,
+                log2_std_error: variant.log2_std_error,
+                statistic: variant.statistic,
+                p_value: variant.p_value,
+            })
+            .collect();
+        return html!(
+
+            script type="module"{
+                (PreEscaped(format!("addPoints({})",serde_json::to_string(&pos_color_pairs).unwrap())))
+            }
+            #container{}
+        );
+    } else {
+        return html!();
+    }
 }
 
 #[tokio::main]
@@ -1023,12 +1024,14 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(main_content))
         .route("/variants", get(get_variants))
+        .route("/heatmap", get(get_heatmap))
         .route("/proteins", get(get_proteins))
         .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
         .route("/variants/:id", get(get_variant_by_id))
         .route("/threshold", get(get_threshold_for_paint_by))
         .route("/title", get(get_title))
+        .route("/scatter", get(get_scatter_plot))
         .layer(DefaultBodyLimit::max(1024 * 1024 * 100000))
         .with_state(state)
         .nest_service(

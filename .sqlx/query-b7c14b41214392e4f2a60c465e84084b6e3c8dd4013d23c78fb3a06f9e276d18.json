@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                select \n                    max(abs(log2_fold_change)) \n                from dms \n                join proteins on dms.protein_id = proteins.id \n                where proteins.protein = $1 and dms.condition = $2;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b7c14b41214392e4f2a60c465e84084b6e3c8dd4013d23c78fb3a06f9e276d18"
+}

@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                dms.id,\n                dms.chunk,\n                dms.pos,\n                dms.p_value,\n                dms.created_at,\n                dms.log2_fold_change,\n                dms.log2_std_error,\n                dms.statistic,\n                dms.condition,\n                dms.aa,\n                dms.version,\n                proteins.protein\n            FROM dms\n            JOIN proteins ON dms.protein_id = proteins.id\n            WHERE dms.id = $1\n            ORDER BY dms.pos, dms.aa\n            LIMIT $2 OFFSET $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "chunk",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "pos",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "p_value",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "log2_fold_change",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "log2_std_error",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "statistic",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 8,
+        "name": "condition",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "aa",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "protein",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "33893878f07cb5e96e3340a9eef0240b76a7d6594ceab9def3b8a573e7555d25"
+}
