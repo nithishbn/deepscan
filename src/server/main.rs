@@ -3,6 +3,7 @@ use axum::middleware;
 use rand::Rng;
 use serde::Deserialize;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::ops::Index;
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
@@ -1136,7 +1137,14 @@ async fn get_threshold_for_paint_by(
 }
 
 async fn get_title() -> impl IntoResponse {
-    let titles = vec!["DeepScan", "A Scanner Deeply", "DMV"];
+    let titles = vec![
+        "DeepScan",
+        "A Scanner Deeply",
+        "DMV",
+        "Twenty Thousand Leagues Under the Sea",
+        "VESPA", // Visualize Effects of Single Polymorphic Alterations
+    ];
+
     let mut rng = rand::thread_rng();
 
     let random_number: usize = rng.gen_range(0..titles.len());

@@ -117,13 +117,14 @@ select:hover {
     display: flex;
     flex-direction: row;
     overflow-x: hidden;
-    height: 90vh;
+    height: 95vh;
     margin-bottom: 1em;
 }
 #container {
     margin: 1em;
     width: 35vw;
-    height: 100%;
+    height: 50vh;
+    /* height: 100%; */
 }
 #dms-table {
     line-height: var(--dms-box-height);

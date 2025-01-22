@@ -1,0 +1,6 @@
+cdk*
+db*
+target*
+.venv
+.git
+deploy

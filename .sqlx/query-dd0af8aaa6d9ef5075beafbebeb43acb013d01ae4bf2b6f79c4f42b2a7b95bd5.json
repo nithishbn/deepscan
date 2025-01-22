@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                        variant.id,\n                        variant.chunk,\n                        variant.pos,\n                        variant.p_value,\n                        variant.created_on,\n                        variant.log2_fold_change,\n                        variant.log2_std_error,\n                        variant.statistic,\n                        variant.condition,\n                        variant.aa,\n                        variant.version,\n                        protein.name as protein\n                    FROM variant\n                    JOIN protein ON variant.protein_id = protein.id\n                    WHERE protein.name = $1\n                    AND variant.condition = $2\n                    ORDER BY variant.pos, variant.aa\n                    LIMIT $3 OFFSET $4\n                    ",
+  "query": "SELECT\n                    variant.id,\n                    variant.chunk,\n                    variant.pos,\n                    variant.p_value,\n                    variant.created_on,\n                    variant.log2_fold_change,\n                    variant.log2_std_error,\n                    variant.statistic,\n                    variant.condition,\n                    variant.aa,\n                    variant.version,\n                    protein.name as protein\n                FROM variant\n                JOIN protein ON variant.protein_id = protein.id\n                WHERE protein.name = $1\n                AND variant.condition = $2\n                AND case $5\n                    when 'p_value' then variant.p_value < $6\n                    when 'log2_fold_change' then variant.log2_fold_change < $6\n                    when 'statistic' then variant.statistic < $6\n                end\n                AND variant.pos >= $3\n                AND variant.pos <= $4\n                ORDER BY variant.pos, variant.aa\n                ",
   "describe": {
     "columns": [
       {
@@ -68,8 +68,10 @@
       "Left": [
         "Text",
         "Text",
-        "Int8",
-        "Int8"
+        "Int4",
+        "Int4",
+        "Text",
+        "Float8"
       ]
     },
     "nullable": [
@@ -87,5 +89,5 @@
       false
     ]
   },
-  "hash": "df4ece0e8de90eeefaa2341f7ad00b2aeb55ef145f168f78627b96a7f65d6e03"
+  "hash": "dd0af8aaa6d9ef5075beafbebeb43acb013d01ae4bf2b6f79c4f42b2a7b95bd5"
 }

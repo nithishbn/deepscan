@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT max(pos) as maximum FROM variant\n        JOIN protein ON variant.protein_id = protein.id\n        WHERE protein.name = $1\n        AND variant.condition = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "maximum",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "624a36ed397a8a1f6e88a688e5002b5f5aed37fc9198b590abcfbdbbecf30619"
+}

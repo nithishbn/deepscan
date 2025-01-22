@@ -1,4 +1,4 @@
-const point_radius = 4;
+const point_radius = 3;
 
 function scatterPlot() {
   return {

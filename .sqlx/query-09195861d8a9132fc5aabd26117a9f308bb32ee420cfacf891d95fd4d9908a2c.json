@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                dms.id,\n                dms.chunk,\n                dms.pos,\n                dms.p_value,\n                dms.created_at,\n                dms.log2_fold_change,\n                dms.log2_std_error,\n                dms.statistic,\n                dms.condition,\n                dms.aa,\n                dms.version,\n                proteins.protein\n            FROM dms\n            JOIN proteins ON dms.protein_id = proteins.id\n            WHERE dms.id = $1\n            ORDER BY dms.pos, dms.aa\n            LIMIT $2 OFFSET $3\n            ",
+  "query": "SELECT\n            variant.id,\n            variant.chunk,\n            variant.pos,\n            variant.p_value,\n            variant.created_on,\n            variant.log2_fold_change,\n            variant.log2_std_error,\n            variant.statistic,\n            variant.condition,\n            variant.aa,\n            variant.version,\n            protein.name as protein\n        FROM variant\n        JOIN protein ON variant.protein_id = protein.id\n        WHERE protein.name = $1\n        AND variant.condition = $2\n        ORDER BY variant.pos, variant.aa\n        ",
   "describe": {
     "columns": [
       {
@@ -25,8 +25,8 @@
       },
       {
         "ordinal": 4,
-        "name": "created_at",
-        "type_info": "Timestamptz"
+        "name": "created_on",
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 5,
@@ -46,29 +46,28 @@
       {
         "ordinal": 8,
         "name": "condition",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 9,
         "name": "aa",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 10,
         "name": "version",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 11,
         "name": "protein",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Int4",
-        "Int8",
-        "Int8"
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -86,5 +85,5 @@
       false
     ]
   },
-  "hash": "33893878f07cb5e96e3340a9eef0240b76a7d6594ceab9def3b8a573e7555d25"
+  "hash": "09195861d8a9132fc5aabd26117a9f308bb32ee420cfacf891d95fd4d9908a2c"
 }

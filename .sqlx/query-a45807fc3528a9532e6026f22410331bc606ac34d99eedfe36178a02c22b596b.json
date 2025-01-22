@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                                variant.id,\n                                variant.chunk,\n                                variant.pos,\n                                variant.p_value,\n                                variant.created_on,\n                                variant.log2_fold_change,\n                                variant.log2_std_error,\n                                variant.statistic,\n                                variant.condition,\n                                variant.aa,\n                                variant.version,\n                                protein.name as protein\n                            FROM variant\n                            JOIN protein ON variant.protein_id = protein.id\n                            WHERE protein.name = $1\n                            AND variant.condition = $2\n                            AND variant.pos >= $3\n                            AND variant.pos <= $4\n                            ORDER BY variant.pos, variant.aa\n                            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "chunk",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "pos",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "p_value",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_on",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "log2_fold_change",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "log2_std_error",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "statistic",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 8,
+        "name": "condition",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "aa",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "protein",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a45807fc3528a9532e6026f22410331bc606ac34d99eedfe36178a02c22b596b"
+}
