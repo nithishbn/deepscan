@@ -78,12 +78,13 @@ async fn main_content() -> Markup {
                  (upload_file_component_with_message(""))
             }
             button
-                hx-get="/heatmap"
+                hx-get="/plot?plot=heatmap"
                 hx-target="#dms-table-container"
                 hx-trigger="click"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
                 {"View Heatmap"}
             button
-                hx-get="/scatter"
+                hx-get="/plot?plot=scatter"
                 hx-target="#dms-table-container"
                 hx-trigger="click"
                 hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
@@ -96,8 +97,34 @@ async fn main_content() -> Markup {
                 }
         }
         div id="full-view"{
-            div id="dms-table-container" hx-get="/heatmap" hx-trigger="load"{
-            }
+            div id="dms-table-container"
+                hx-get="/plot?plot=heatmap"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                hx-trigger="load delay:0.5s"{
+                    table id="dms-table"{
+                        thead{
+                            tr{
+                                th{" "}
+                                @for amino_acid in &AMINO_ACIDS{
+                                    th { (amino_acid)}
+                                }
+                            }
+                        }
+                        tbody
+                        {
+                            @for pos in 1..100{ // just to show content while stuff is loading
+                                tr{
+                                    th scope="row"{(pos)}
+                                    @for amino_acid in &AMINO_ACIDS{
+                                        (format_variant_cell(None, &pos, amino_acid, None, None))
+                                    }
+                                }
+
+                            }
+
+                        }
+                    }
+                }
             script src="assets/viewer.js"{}
             div id="variant-view"{
                 div id="variant-view-table" x-data x-init="initMolstar()"{
@@ -120,6 +147,23 @@ async fn main_content() -> Markup {
 
     };
     base(var_name)
+}
+
+async fn get_plot(
+    State(state): State<AppState>,
+    Query(params): Query<TableParams>,
+) -> impl IntoResponse {
+    match params.plot {
+        Some(plot_type) => match plot_type {
+            dms_viewer::PlotType::Scatter => get_scatter_plot(state, params).await.into_response(),
+            dms_viewer::PlotType::Heatmap => get_heatmap().await.into_response(),
+        },
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            html!("Plot Type enum missing"),
+        )
+            .into_response(),
+    }
 }
 
 async fn get_heatmap() -> impl IntoResponse {
@@ -151,6 +195,89 @@ async fn get_heatmap() -> impl IntoResponse {
         }
     }))
     .into_response()
+}
+
+async fn get_scatter_plot(state: AppState, params: TableParams) -> impl IntoResponse {
+    let TableParams {
+        ref protein,
+        ref condition,
+        page: _,
+        position_filter: _,
+        ref paint,
+        operation: _,
+        threshold,
+        plot: _,
+    } = params;
+    let pool = &state.pool;
+
+    let variants = sqlx::query_as!(
+        Variant,
+        r#"SELECT
+            variant.id,
+            variant.chunk,
+            variant.pos,
+            variant.p_value,
+            variant.created_on,
+            variant.log2_fold_change,
+            variant.log2_std_error,
+            variant.statistic,
+            variant.condition,
+            variant.aa,
+            variant.version,
+            protein.name as protein
+        FROM variant
+        JOIN protein ON variant.protein_id = protein.id
+        WHERE protein.name = $1
+        AND variant.condition = $2
+        ORDER BY variant.pos, variant.aa
+        "#,
+        protein,
+        condition,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap();
+
+    if let Some(max_abs) = get_max_absolute_value(protein, condition, *paint, pool).await {
+        if let Some(threshold) = threshold {}
+        if let Some(min_max) =
+            get_range_of_variant(protein, condition, Paint::Log2FoldChange, pool).await
+        {
+            let normalizer = Normalizer { max_abs };
+
+            let pos_color_pairs: Vec<VariantColor> = variants
+                .iter()
+                .map(|variant| VariantColor {
+                    id: variant.id.unwrap(),
+                    pos: variant.pos,
+                    color: {
+                        match *paint {
+                            Paint::Log2FoldChange => {
+                                normalizer.get_color_hex(variant.log2_fold_change)
+                            }
+                            Paint::PValue => normalizer.get_color_hex(variant.p_value),
+                            Paint::ZStatistic => normalizer.get_color_hex(variant.statistic),
+                        }
+                    },
+                    aa: variant.aa.clone(),
+                    log2_fold_change: variant.log2_fold_change,
+                    log2_std_error: variant.log2_std_error,
+                    statistic: variant.statistic,
+                    p_value: {
+                        let neg_log10_p = -variant.p_value.log10();
+                        neg_log10_p.min(20.0) // Cap at 21 if greater
+                    },
+                })
+                .collect();
+
+            return html!(
+                #container
+                    x-data="scatterPlot()"
+                    x-init=(format!("initPlot({},{},0,21); setData({})",min_max.min,min_max.max, serde_json::to_string(&pos_color_pairs).unwrap())) {}
+            );
+        }
+    }
+    return html!();
 }
 
 async fn get_conditions(
@@ -311,6 +438,7 @@ async fn get_variants(
         ref paint,
         operation: _,
         ref threshold,
+        plot: _,
     } = params;
     let page = page.unwrap_or(1);
     info!(
@@ -940,6 +1068,7 @@ async fn get_threshold_for_paint_by(
         ref paint,
         operation: _,
         threshold: _,
+        plot: _,
     } = params;
     let pool = &state.pool;
     match position_filter {
@@ -1014,91 +1143,6 @@ async fn get_title() -> impl IntoResponse {
     return (html!((titles.get(random_number).unwrap().to_uppercase()))).into_response();
 }
 
-async fn get_scatter_plot(
-    State(state): State<AppState>,
-    Query(params): Query<TableParams>,
-) -> impl IntoResponse {
-    let TableParams {
-        ref protein,
-        ref condition,
-        page: _,
-        position_filter: _,
-        ref paint,
-        operation: _,
-        threshold,
-    } = params;
-    let pool = &state.pool;
-
-    let variants = sqlx::query_as!(
-        Variant,
-        r#"SELECT
-            variant.id,
-            variant.chunk,
-            variant.pos,
-            variant.p_value,
-            variant.created_on,
-            variant.log2_fold_change,
-            variant.log2_std_error,
-            variant.statistic,
-            variant.condition,
-            variant.aa,
-            variant.version,
-            protein.name as protein
-        FROM variant
-        JOIN protein ON variant.protein_id = protein.id
-        WHERE protein.name = $1
-        AND variant.condition = $2
-        ORDER BY variant.pos, variant.aa
-        "#,
-        protein,
-        condition,
-    )
-    .fetch_all(&state.pool)
-    .await
-    .unwrap();
-
-    if let Some(max_abs) = get_max_absolute_value(protein, condition, *paint, pool).await {
-        if let Some(threshold) = threshold {}
-        if let Some(min_max) =
-            get_range_of_variant(protein, condition, Paint::Log2FoldChange, pool).await
-        {
-            let normalizer = Normalizer { max_abs };
-
-            let pos_color_pairs: Vec<VariantColor> = variants
-                .iter()
-                .map(|variant| VariantColor {
-                    id: variant.id.unwrap(),
-                    pos: variant.pos,
-                    color: {
-                        match *paint {
-                            Paint::Log2FoldChange => {
-                                normalizer.get_color_hex(variant.log2_fold_change)
-                            }
-                            Paint::PValue => normalizer.get_color_hex(variant.p_value),
-                            Paint::ZStatistic => normalizer.get_color_hex(variant.statistic),
-                        }
-                    },
-                    aa: variant.aa.clone(),
-                    log2_fold_change: variant.log2_fold_change,
-                    log2_std_error: variant.log2_std_error,
-                    statistic: variant.statistic,
-                    p_value: {
-                        let neg_log10_p = -variant.p_value.log10();
-                        neg_log10_p.min(20.0) // Cap at 21 if greater
-                    },
-                })
-                .collect();
-
-            return html!(
-                #container
-                    x-data="scatterPlot()"
-                    x-init=(format!("initPlot({},{},0,21); setData({})",min_max.min,min_max.max, serde_json::to_string(&pos_color_pairs).unwrap())) {}
-            );
-        }
-    }
-    return html!();
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -1110,7 +1154,8 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(main_content))
         .route("/variants", get(get_variants))
-        .route("/heatmap", get(get_heatmap))
+        .route("/plot", get(get_plot))
+        // .route("/heatmap", get(get_heatmap))
         .route("/proteins", get(get_proteins))
         .route("/conditions", get(get_conditions))
         .route("/upload", post(upload_file))
@@ -1118,7 +1163,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/variant", get(get_many_variants_by_id))
         .route("/threshold", get(get_threshold_for_paint_by))
         .route("/title", get(get_title))
-        .route("/scatter", get(get_scatter_plot))
+        // .route("/scatter", get(get_scatter_plot))
         .layer(DefaultBodyLimit::max(1024 * 1024 * 100000))
         .with_state(state)
         .nest_service(

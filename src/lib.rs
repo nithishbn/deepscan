@@ -192,4 +192,13 @@ pub struct TableParams {
     pub operation: Option<Operation>,
     pub threshold: Option<f64>,
     pub page: Option<i32>,
+    pub plot: Option<PlotType>,
+}
+
+#[derive(Deserialize, Copy, Clone)]
+pub enum PlotType {
+    #[serde(alias = "scatter")]
+    Scatter,
+    #[serde(alias = "heatmap")]
+    Heatmap,
 }
