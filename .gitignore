@@ -9,3 +9,5 @@ logfile
 alembic.ini
 
 deploy/
+
+assets/fonts/

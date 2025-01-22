@@ -20,7 +20,7 @@ function scatterPlot() {
     },
 
     initScatter(xmin, xmax, ymin, ymax) {
-      var margin = { top: 20, right: 30, bottom: 40, left: 60 };
+      var margin = { top: 20, right: 30, bottom: 60, left: 60 };
 
       // Get the width and height of the container dynamically
       var container = d3.select("#container");
@@ -51,10 +51,8 @@ function scatterPlot() {
       svg.append("g").call(d3.axisLeft(y));
       svg
         .append("text")
-        .attr(
-          "transform",
-          "translate(" + width / 2 + " ," + (height + margin.bottom) + ")",
-        )
+        .attr("x", 0 + width / 2)
+        .attr("y", 0 - margin.bottom)
         .style("text-anchor", "middle")
         .text("Log2 Fold Change");
 

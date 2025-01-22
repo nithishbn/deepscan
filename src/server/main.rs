@@ -7,6 +7,7 @@ use std::ops::Index;
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
+use tracing_subscriber::filter::filter_fn;
 pub mod utils;
 use axum::extract::Path;
 use axum::{
@@ -37,7 +38,7 @@ fn base(content: Markup) -> Markup {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=3, maximum-scale=1, user-scalable=no" {}
-                title hx-get="/title" hx-trigger="load"{  }
+                title{ "DMS Viewer" }
 
                 // Styles
                 link rel="stylesheet" href="assets/style.css"{}
@@ -65,7 +66,7 @@ async fn main_content() -> Markup {
     let var_name = html! {
         h1 id = "page-title" {
             span id="page-title-start"{"// "}
-            span hx-get="/title" hx-trigger="every 5s" hx-swap="innerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
+            span hx-get="/title?previous=DeepScan" hx-trigger="every 5s" hx-swap="outerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
 
         }
         div id="select-and-upload"{
@@ -157,7 +158,14 @@ async fn get_plot(
     match params.plot {
         Some(plot_type) => match plot_type {
             dms_viewer::PlotType::Scatter => get_scatter_plot(state, params).await.into_response(),
-            dms_viewer::PlotType::Heatmap => get_heatmap().await.into_response(),
+            dms_viewer::PlotType::Heatmap => {
+                let mut res = get_heatmap().await.into_response();
+                res.headers_mut().insert(
+                    "HX-Trigger-After-Settle",
+                    HeaderValue::from_static("load-condition"),
+                );
+                return res;
+            }
         },
         None => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -181,7 +189,7 @@ async fn get_heatmap() -> impl IntoResponse {
         tbody id="dms-table-body"
             hx-get="/variants"
             hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-            hx-trigger="load delay:0.1s"
+            hx-trigger="load-condition from:body delay:0.25s"
         {
             @for pos in 1..100{ // just to show content while stuff is loading
                 tr{
@@ -316,8 +324,10 @@ async fn get_conditions(
             })
             .into_response();
 
-            res.headers_mut()
-                .insert("HX-Trigger", HeaderValue::from_static("load-condition"));
+            res.headers_mut().insert(
+                "HX-Trigger-After-Settle",
+                HeaderValue::from_static("load-condition"),
+            );
             return res;
         }
         Err(err) => (
@@ -355,11 +365,11 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
                 }
             }
             form
-                hx-get="/variants?page=1"
+                hx-get="/variants"
                 hx-indicator="#loading"
                 hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
                 hx-target="#dms-table-body"
-                hx-trigger="input throttle:0.15s,load-condition from:body delay:0.5s"
+                hx-trigger="input throttle:0.15s"
             {
                 div class="selection-form"
                     hx-get="/threshold"
@@ -1135,20 +1145,36 @@ async fn get_threshold_for_paint_by(
         _ => (html!()).into_response(),
     }
 }
+#[derive(Debug, serde::Deserialize)]
+pub struct TitleQuery {
+    previous: Option<String>,
+}
 
-async fn get_title() -> impl IntoResponse {
+async fn get_title(Query(query): Query<TitleQuery>) -> impl IntoResponse {
     let titles = vec![
         "DeepScan",
         "A Scanner Deeply",
         "DMV",
         "Twenty Thousand Leagues Under the Sea",
-        "VESPA", // Visualize Effects of Single Polymorphic Alterations
+        "VESPA", // Visualize Effects of Site-Specific Protein Alterations
     ];
+    let filtered_titles: Vec<&str> = match &query.previous {
+        Some(prev) => titles.into_iter().filter(|title| title != prev).collect(),
+        None => titles.into_iter().collect(),
+    };
 
     let mut rng = rand::thread_rng();
 
-    let random_number: usize = rng.gen_range(0..titles.len());
-    return (html!((titles.get(random_number).unwrap().to_uppercase()))).into_response();
+    let random_number: usize = rng.gen_range(0..filtered_titles.len());
+    let new_title = filtered_titles.get(random_number).unwrap();
+    return html!(
+        span
+            hx-get=(format!("/title?previous={new_title}"))
+            hx-trigger="every 5s"
+            hx-swap="outerHTML swap:1s settle:1s"
+            id="page-title-end" {(new_title.to_uppercase())}
+    )
+    .into_response();
 }
 
 #[tokio::main]
