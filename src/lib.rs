@@ -89,6 +89,7 @@ pub struct PosColor {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VariantColor {
+    pub id: i32,
     pub pos: i32,
     pub aa: String,
     pub log2_fold_change: f64,

@@ -120,7 +120,11 @@ select:hover {
     height: 90vh;
     margin-bottom: 1em;
 }
-
+#container {
+    margin: 1em;
+    width: 40vw;
+    height: 100%;
+}
 #dms-table {
     line-height: var(--dms-box-height);
     border-collapse: collapse;
@@ -129,8 +133,8 @@ select:hover {
 }
 
 #dms-table-container {
-    flex: 0 1 auto;
-    height: 90%;
+    flex: 1 0 auto;
+    height: 85%;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
@@ -139,7 +143,9 @@ select:hover {
 #dms-table-container::-webkit-scrollbar {
     display: none;
 }
-
+#variant-view {
+    flex: 1 0 auto;
+}
 #variant-view-table {
     display: flex;
     margin: 0vw 1vh;
@@ -162,7 +168,7 @@ select:hover {
 
 #structure {
     /* flex: 1 1 auto; */
-    flex: 1;
+    flex: 1 1 auto;
     width: 100%;
     position: relative;
     height: 65%;
