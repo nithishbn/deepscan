@@ -52,7 +52,7 @@ function scatterPlot() {
       svg
         .append("text")
         .attr("x", 0 + width / 2)
-        .attr("y", 0 - margin.bottom)
+        .attr("y", height + margin.bottom - 20)
         .style("text-anchor", "middle")
         .text("Log2 Fold Change");
 

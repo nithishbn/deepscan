@@ -39,7 +39,7 @@ pub const AMINO_ACIDS: [&str; 21] = [
     "*", "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V",
     "W", "Y",
 ];
-pub const PAGE_SIZE: i32 = 100;
+pub const PAGE_SIZE: i32 = 500;
 
 pub struct Normalizer {
     pub max_abs: f64,

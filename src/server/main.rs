@@ -3,11 +3,9 @@ use axum::middleware;
 use rand::Rng;
 use serde::Deserialize;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::ops::Index;
 use std::{collections::HashMap, io::Cursor};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
-use tracing_subscriber::filter::filter_fn;
 pub mod utils;
 use axum::extract::Path;
 use axum::{
@@ -16,7 +14,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Query, State},
     http::{HeaderValue, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use chrono::{NaiveDateTime, Utc};
@@ -55,7 +53,6 @@ fn base(content: Markup) -> Markup {
 
             }
             body{
-
                 (content)
             }
         }
@@ -66,19 +63,10 @@ async fn main_content() -> Markup {
     let var_name = html! {
         h1 id = "page-title" {
             span id="page-title-start"{"// "}
-            span hx-get="/title?previous=DeepScan" hx-trigger="every 5s" hx-swap="outerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
-
+            span hx-get="/title?previous=DeepScan" hx-trigger="every 7s" hx-swap="outerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
         }
         div id="select-and-upload"{
-            form
-                hx-post="/upload"
-                hx-encoding="multipart/form-data"
-                hx-include="[name='protein']"
-                hx-indicator="#upload-indicator"
-                hx-target="this"
-                {
-                 (upload_file_component_with_message(""))
-            }
+
             button
                 hx-get="/plot?plot=heatmap"
                 hx-target="#dms-table-container"
@@ -1192,7 +1180,7 @@ async fn main() -> anyhow::Result<()> {
         // .route("/heatmap", get(get_heatmap))
         .route("/proteins", get(get_proteins))
         .route("/conditions", get(get_conditions))
-        .route("/upload", post(upload_file))
+        // .route("/upload", post(upload_file))
         .route("/variant/:id", get(get_variant_by_id))
         .route("/variant", get(get_many_variants_by_id))
         .route("/threshold", get(get_threshold_for_paint_by))

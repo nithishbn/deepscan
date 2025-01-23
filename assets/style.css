@@ -170,7 +170,7 @@ select:hover {
 
 #dms-table-container {
     flex: 1 0 auto;
-    height: 85%;
+    height: 87%;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
