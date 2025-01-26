@@ -39,6 +39,11 @@ pub const AMINO_ACIDS: [&str; 21] = [
     "*", "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V",
     "W", "Y",
 ];
+
+pub const GROUPED_AMINO_ACIDS: [&str; 21] = [
+    "I", "V", "L", "F", "C", "M", "A", "W", "G", "T", "S", "Y", "P", "H", "N", "D", "Q", "E", "K",
+    "R", "*",
+];
 pub const PAGE_SIZE: i32 = 500;
 
 pub struct Normalizer {
@@ -201,4 +206,14 @@ pub enum PlotType {
     Scatter,
     #[serde(alias = "heatmap")]
     Heatmap,
+}
+
+impl std::fmt::Display for PlotType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            PlotType::Heatmap => "heatmap",
+            PlotType::Scatter => "scatter",
+        };
+        write!(f, "{}", output)
+    }
 }

@@ -20,8 +20,8 @@ use axum::{
 use chrono::{NaiveDateTime, Utc};
 use csv::Error;
 use dms_viewer::{
-    AppState, Normalizer, Paint, PosColor, PositionFilter, TableParams, Variant, VariantColor,
-    AMINO_ACIDS, PAGE_SIZE,
+    AppState, Normalizer, Paint, PlotType, PosColor, PositionFilter, TableParams, Variant,
+    VariantColor, GROUPED_AMINO_ACIDS, PAGE_SIZE,
 };
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 use sqlx::{query_as, query_scalar, PgPool};
@@ -68,34 +68,36 @@ async fn main_content() -> Markup {
         div id="select-and-upload"{
 
             button
-                hx-get="/plot?plot=heatmap"
-                hx-target="#dms-table-container"
+                hx-get="/variant_form?plot=heatmap"
+                hx-target="#variant-form"
                 hx-trigger="click"
                 hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                hx-swap="outerHTML"
                 {"View Heatmap"}
             button
-                hx-get="/plot?plot=scatter"
-                hx-target="#dms-table-container"
+                hx-get="/variant_form?plot=scatter"
+                hx-target="#variant-form"
                 hx-trigger="click"
                 hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                hx-swap="outerHTML"
                 {"View Scatterplot"}
 
             form class="selection-form"
                 hx-get="/proteins"
                 hx-trigger="load"
+                id="overall-form"
                 {
                 }
         }
         div id="full-view"{
             div id="dms-table-container"
-                hx-get="/plot?plot=heatmap"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-                hx-trigger="load delay:0.5s"{
+
+            {
                     table id="dms-table"{
                         thead{
                             tr{
                                 th{" "}
-                                @for amino_acid in &AMINO_ACIDS{
+                                @for amino_acid in &GROUPED_AMINO_ACIDS{
                                     th { (amino_acid)}
                                 }
                             }
@@ -105,7 +107,7 @@ async fn main_content() -> Markup {
                             @for pos in 1..100{ // just to show content while stuff is loading
                                 tr{
                                     th scope="row"{(pos)}
-                                    @for amino_acid in &AMINO_ACIDS{
+                                    @for amino_acid in &GROUPED_AMINO_ACIDS{
                                         (format_variant_cell(None, &pos, amino_acid, None, None))
                                     }
                                 }
@@ -145,13 +147,14 @@ async fn get_plot(
 ) -> impl IntoResponse {
     match params.plot {
         Some(plot_type) => match plot_type {
-            dms_viewer::PlotType::Scatter => get_scatter_plot(state, params).await.into_response(),
+            dms_viewer::PlotType::Scatter => {
+                let mut res = get_scatter_plot(state, params).await.into_response();
+
+                return res;
+            }
             dms_viewer::PlotType::Heatmap => {
                 let mut res = get_heatmap().await.into_response();
-                res.headers_mut().insert(
-                    "HX-Trigger-After-Settle",
-                    HeaderValue::from_static("load-condition"),
-                );
+
                 return res;
             }
         },
@@ -169,7 +172,7 @@ async fn get_heatmap() -> impl IntoResponse {
             thead{
                 tr{
                     th{" "}
-                    @for amino_acid in &AMINO_ACIDS{
+                    @for amino_acid in &GROUPED_AMINO_ACIDS{
                         th { (amino_acid)}
                     }
                 }
@@ -182,7 +185,7 @@ async fn get_heatmap() -> impl IntoResponse {
             @for pos in 1..100{ // just to show content while stuff is loading
                 tr{
                     th scope="row"{(pos)}
-                    @for amino_acid in &AMINO_ACIDS{
+                    @for amino_acid in &GROUPED_AMINO_ACIDS{
                         (format_variant_cell(None, &pos, amino_acid, None, None))
                     }
                 }
@@ -328,15 +331,19 @@ async fn get_conditions(
     }
 }
 
-async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_proteins(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
     info!("getting proteins");
+
     let rows = sqlx::query!("SELECT DISTINCT id, name FROM protein;")
         .fetch_all(&state.pool)
         .await;
     match rows {
         Ok(proteins) => {
             let mut res = (html! {
-            form class="selection-form"{
+            div class="selection-form"{
                 #protein-select-div .select-div{
                     label for="protein" id="protein-select-label"{"Protein"}
                     select id="protein-select" name="protein"
@@ -351,66 +358,12 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
                             }
                         }
                 }
-            }
-            form
-                hx-get="/variants"
-                hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-                hx-target="#dms-table-body"
-                hx-trigger="input throttle:0.15s"
-            {
-                div class="selection-form"
-                    hx-get="/threshold"
-                    hx-trigger="change, load-condition from:body delay:0.25s"
-                    hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
-                    hx-target="#threshold-slider"
-                {
-                    #condition-select-div .select-div{
-                        label for="condition" id="condition-select-label"{"Condition"}
-                        select id="condition-select" name="condition"
-                        {}
-                    }
-
-                    #position-filter-select-div .select-div{
-                        label id="label-position-filter-select" for="position_filter"{"Select"}
-                        select id="position-filter-select" name="position_filter"
-                    {
-                            option value=("NoOrder") { ("No Order") }
-                            option value=("MostSignificantPValue") { ("Most significant p value") }
-                            option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
-                            option value=("LargestZStatistic") { ("Largest z statistic") }
-                        }
-                    }
-
-                    #paint-by-filter-select-div .select-div{
-                        label id="label-paint-by-select" for="paint"{"Paint By"}
-                        select id="paint-by-select" name="paint"
-
-                        {
-                            option value=("Log2FoldChange") { ("log2 Fold Change") }
-                            option value=("PValue") { ("p value") }
-                            option value=("ZStatistic") { ("z statistic") }
-                        }
-                    }
-                    #threshold
-                        name="threshold"
-                        x-data="{ threshold_value: 0 }"
-                        {
-                        #threshold-slider .select-div{
-                            label for="threshold"{"Threshold"}
-
-                        }
-
-                    }
-                }
+                (create_variant_form(None))
             }
 
 
-
-
-            div id="loading" class="htmx-indicator"{"Loading..."}
-
-            }).into_response();
+            })
+            .into_response();
             res.headers_mut().insert(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("max-age=100"),
@@ -423,6 +376,81 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
         })
         .into_response(),
     }
+}
+
+async fn get_variant_form(Query(params): Query<TableParams>) -> impl IntoResponse {
+    create_variant_form(params.plot)
+}
+fn create_variant_form(plot: Option<PlotType>) -> Markup {
+    let target = match plot {
+        Some(plot) => match plot {
+            dms_viewer::PlotType::Heatmap => "#dms-table-container",
+            dms_viewer::PlotType::Scatter => "#dms-table-container",
+        },
+        None => "#dms-table-body",
+    };
+    html!(
+        form
+            hx-get=(format!("/plot?plot={}",plot.unwrap_or(dms_viewer::PlotType::Heatmap)))
+            hx-indicator="#loading"
+            hx-include="[name='protein']"
+            hx-target=(target)
+            hx-trigger="load-condition from:body delay:0.5s, input throttle:0.15s delay:0.5s"
+            id="variant-form"
+        {
+            (get_selection_form())
+        }
+
+        div id="loading" class="htmx-indicator"{"Loading..."}
+    )
+}
+
+fn get_selection_form() -> Markup {
+    html!(
+    div class="selection-form"
+        hx-get="/threshold"
+        hx-trigger="change, load-condition from:body delay:0.25s"
+        hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint']"
+        hx-target="#threshold-slider"
+    {
+        #condition-select-div .select-div{
+            label for="condition" id="condition-select-label"{"Condition"}
+            select id="condition-select" name="condition"
+            {}
+        }
+
+        #position-filter-select-div .select-div{
+            label id="label-position-filter-select" for="position_filter"{"Select"}
+            select id="position-filter-select" name="position_filter"
+        {
+                option value=("NoOrder") { ("No Order") }
+                option value=("MostSignificantPValue") { ("Most significant p value") }
+                option value=("LargestLog2FoldChange") { ("Largest log2 Fold Change") }
+                option value=("LargestZStatistic") { ("Largest z statistic") }
+            }
+        }
+
+        #paint-by-filter-select-div .select-div{
+            label id="label-paint-by-select" for="paint"{"Paint By"}
+            select id="paint-by-select" name="paint"
+            {
+                option value=("Log2FoldChange") { ("log2 Fold Change") }
+                option value=("PValue") { ("p value") }
+                option value=("ZStatistic") { ("z statistic") }
+            }
+        }
+        #threshold
+            name="threshold"
+            x-data="{ threshold_value: 0 }"
+            {
+            #threshold-slider .select-div{
+                label for="threshold"{"Threshold"}
+
+            }
+
+        }
+    }
+    )
 }
 
 async fn get_variants(
@@ -496,7 +524,11 @@ async fn get_variants(
                 AND variant.condition = $2
                 AND case $5
                     when 'p_value' then variant.p_value < $6
-                    when 'log2_fold_change' then variant.log2_fold_change < $6
+                    when 'log2_fold_change' then
+                            (case
+                                when variant.log2_fold_change >= 0 then variant.log2_fold_change < $6
+                                else variant.log2_fold_change > $6
+                            end)
                     when 'statistic' then variant.statistic < $6
                 end
                 AND variant.pos >= $3
@@ -627,8 +659,8 @@ async fn get_variants(
                         @for pos in &positions{
                             tr{
                                 th scope="row"{(pos)}
-                                @for amino_acid in &AMINO_ACIDS{
-                                    @let end_of_row = (pos == &(page_end - 15)) && (&amino_acid == &AMINO_ACIDS.last().unwrap());
+                                @for amino_acid in &GROUPED_AMINO_ACIDS{
+                                    @let end_of_row = (pos == &(page_end - 15)) && (&amino_acid == &GROUPED_AMINO_ACIDS.last().unwrap());
                                     (get_variant_cell(&variants, amino_acid, pos, &params, end_of_row,&normalizer))
                                 }
                             }
@@ -1177,6 +1209,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(main_content))
         .route("/variants", get(get_variants))
         .route("/plot", get(get_plot))
+        .route("/variant_form", get(get_variant_form))
         // .route("/heatmap", get(get_heatmap))
         .route("/proteins", get(get_proteins))
         .route("/conditions", get(get_conditions))
