@@ -66,19 +66,31 @@ async fn main_content() -> Markup {
             span hx-get="/title?previous=DeepScan" hx-trigger="every 7s" hx-swap="outerHTML swap:1s settle:1s" id="page-title-end" {"DEEPSCAN"}
         }
         div id="select-and-upload"{
+            fieldset{
+                input
+                    hx-get="/plot"
+                    hx-target="#dms-table-container"
+                    hx-trigger="load delay:0.5s, click"
+                    hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                    type="radio"
+                    name="plot"
+                    value="heatmap"
+                    id="heatmap"
+                    checked
+                    {}
+                label for="heatmap"{"View Heatmap"}
+                input
+                    hx-get="/plot"
+                    hx-target="#dms-table-container"
+                    hx-trigger="click"
+                    hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                    type="radio"
+                    name="plot"
+                    value="scatter"
+                    id="scatter"{}
+                label for="scatter" {"View Scatterplot"}
+                }
 
-            button
-                hx-get="/plot?plot=heatmap"
-                hx-target="#dms-table-container"
-                hx-trigger="click"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-                {"View Heatmap"}
-            button
-                hx-get="/plot?plot=scatter"
-                hx-target="#dms-table-container"
-                hx-trigger="click"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-                {"View Scatterplot"}
 
             form class="selection-form"
                 hx-get="/proteins"
@@ -89,7 +101,7 @@ async fn main_content() -> Markup {
         div id="full-view"{
             div id="dms-table-container"
                 hx-get="/plot?plot=heatmap"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold'],[name='plot']"
                 hx-trigger="load delay:0.5s"{
                     table id="dms-table"{
                         thead{
@@ -353,10 +365,10 @@ async fn get_proteins(State(state): State<AppState>) -> impl IntoResponse {
                 }
             }
             form
-                hx-get="/variants"
+                hx-get="/plot"
                 hx-indicator="#loading"
-                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold']"
-                hx-target="#dms-table-body"
+                hx-include="[name='protein'],[name='condition'],[name='position_filter'],[name='paint'],[name='threshold'],[name='plot']"
+                hx-target="#dms-table-container"
                 hx-trigger="input throttle:0.15s"
             {
                 div class="selection-form"
